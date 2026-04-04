@@ -1,78 +1,59 @@
-import asyncio
-import re
-import time
-import edge_tts
+import os
+from gtts import gTTS
+from moviepy.editor import AudioFileClip
 
-VOICE = "en-US-GuyNeural"
-MAX_RETRIES = 3
-BASE_BACKOFF = 2  # seconds
-
-async def _generate(text, audio_path, subtitle_path, attempt=1):
-    try:
-        communicate = edge_tts.Communicate(text, VOICE)
-        submaker = edge_tts.SubMaker()
-
-        with open(audio_path, 'wb') as f:
-            async for chunk in communicate.stream():
-                if chunk['type'] == 'audio':
-                    f.write(chunk['data'])
-                elif chunk['type'] == 'WordBoundary':
-                    submaker.create_sub(
-                        (chunk['offset'], chunk['duration']),
-                        chunk['text']
-                    )
-
-        with open(subtitle_path, 'w', encoding='utf-8') as f:
-            f.write(submaker.generate_subs(words_in_cue=6))
-            
-    except Exception as e:
-        if attempt < MAX_RETRIES and ('403' in str(e) or 'WSserver' in str(e)):
-            wait_time = BASE_BACKOFF ** (attempt - 1)
-            print(f"[tts_generator] Connection failed (attempt {attempt}/{MAX_RETRIES}): {type(e).__name__}")
-            print(f"[tts_generator] Retrying in {wait_time} seconds...")
-            await asyncio.sleep(wait_time)
-            return await _generate(text, audio_path, subtitle_path, attempt + 1)
-        else:
-            raise
 
 def generate_voiceover(text, audio_path, subtitle_path):
-    asyncio.run(_generate(text, audio_path, subtitle_path))
+    """Generate audio with gTTS and estimate subtitle timings."""
+    print("[tts_generator] Generating audio with gTTS...")
+    tts = gTTS(text=text, lang='en', slow=False, tld='com')
+    tts.save(audio_path)
     print(f"[tts_generator] Audio saved: {audio_path}")
+
+    # Get actual audio duration for accurate subtitle timing
+    audio = AudioFileClip(audio_path)
+    duration = audio.duration
+    audio.close()
+
+    _generate_srt(text, duration, subtitle_path)
     print(f"[tts_generator] Subtitles saved: {subtitle_path}")
 
 
-def vtt_to_srt(vtt_path, srt_path):
-    """Convert WebVTT to SRT format for ffmpeg subtitle burning."""
-    with open(vtt_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+def _generate_srt(text, duration, srt_path):
+    """Estimate subtitle timings proportionally across audio duration."""
+    words = text.split()
+    if not words:
+        open(srt_path, 'w').close()
+        return
 
-    # Remove WEBVTT header and NOTE blocks
-    content = re.sub(r'^WEBVTT.*?\n\n', '', content, flags=re.DOTALL)
-    content = re.sub(r'NOTE[^\n]*\n.*?\n\n', '', content, flags=re.DOTALL)
+    time_per_word = duration / len(words)
+    chunk_size = 6
 
-    blocks = [b.strip() for b in content.strip().split('\n\n') if b.strip()]
-    srt_entries = []
-    counter = 1
+    chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
 
-    for block in blocks:
-        lines = block.split('\n')
-        time_line = None
-        text_lines = []
+    def fmt(seconds):
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        ms = int((seconds % 1) * 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
-        for line in lines:
-            if '-->' in line:
-                time_line = line
-            elif line and not re.match(r'^\d+$', line):
-                text_lines.append(line)
+    entries = []
+    current = 0.0
 
-        if time_line and text_lines:
-            # VTT uses dots, SRT uses commas for milliseconds
-            srt_time = time_line.replace('.', ',')
-            text = ' '.join(text_lines)
-            srt_entries.append(f"{counter}\n{srt_time}\n{text}")
-            counter += 1
+    for i, chunk in enumerate(chunks, 1):
+        chunk_dur = len(chunk) * time_per_word
+        start = fmt(current)
+        end = fmt(min(current + chunk_dur, duration))
+        entries.append(f"{i}\n{start} --> {end}\n{' '.join(chunk)}")
+        current += chunk_dur
 
     with open(srt_path, 'w', encoding='utf-8') as f:
-        f.write('\n\n'.join(srt_entries) + '\n')
+        f.write('\n\n'.join(entries) + '\n')
 
-    print(f"[tts_generator] SRT saved: {srt_path}")
+
+def vtt_to_srt(vtt_path, srt_path):
+    """No-op: gTTS generates SRT directly. SRT already exists at subtitle_path."""
+    # subtitle_path passed to generate_voiceover IS the srt_path in main.py
+    # vtt_path and srt_path are the same file here — nothing to convert
+    pass

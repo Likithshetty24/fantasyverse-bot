@@ -1,25 +1,39 @@
 import asyncio
 import re
+import time
 import edge_tts
 
 VOICE = "en-US-GuyNeural"
+MAX_RETRIES = 3
+BASE_BACKOFF = 2  # seconds
 
-async def _generate(text, audio_path, subtitle_path):
-    communicate = edge_tts.Communicate(text, VOICE)
-    submaker = edge_tts.SubMaker()
+async def _generate(text, audio_path, subtitle_path, attempt=1):
+    try:
+        communicate = edge_tts.Communicate(text, VOICE)
+        submaker = edge_tts.SubMaker()
 
-    with open(audio_path, 'wb') as f:
-        async for chunk in communicate.stream():
-            if chunk['type'] == 'audio':
-                f.write(chunk['data'])
-            elif chunk['type'] == 'WordBoundary':
-                submaker.create_sub(
-                    (chunk['offset'], chunk['duration']),
-                    chunk['text']
-                )
+        with open(audio_path, 'wb') as f:
+            async for chunk in communicate.stream():
+                if chunk['type'] == 'audio':
+                    f.write(chunk['data'])
+                elif chunk['type'] == 'WordBoundary':
+                    submaker.create_sub(
+                        (chunk['offset'], chunk['duration']),
+                        chunk['text']
+                    )
 
-    with open(subtitle_path, 'w', encoding='utf-8') as f:
-        f.write(submaker.generate_subs(words_in_cue=6))
+        with open(subtitle_path, 'w', encoding='utf-8') as f:
+            f.write(submaker.generate_subs(words_in_cue=6))
+            
+    except Exception as e:
+        if attempt < MAX_RETRIES and ('403' in str(e) or 'WSserver' in str(e)):
+            wait_time = BASE_BACKOFF ** (attempt - 1)
+            print(f"[tts_generator] Connection failed (attempt {attempt}/{MAX_RETRIES}): {type(e).__name__}")
+            print(f"[tts_generator] Retrying in {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
+            return await _generate(text, audio_path, subtitle_path, attempt + 1)
+        else:
+            raise
 
 def generate_voiceover(text, audio_path, subtitle_path):
     asyncio.run(_generate(text, audio_path, subtitle_path))

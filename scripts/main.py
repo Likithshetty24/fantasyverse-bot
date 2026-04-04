@@ -53,8 +53,14 @@ def main():
     vtt_path   = os.path.join(WORK_DIR, 'subtitles.vtt')
     srt_path   = os.path.join(WORK_DIR, 'subtitles.srt')
 
-    generate_voiceover(script, audio_path, vtt_path)
-    vtt_to_srt(vtt_path, srt_path)
+    try:
+        generate_voiceover(script, audio_path, vtt_path)
+        vtt_to_srt(vtt_path, srt_path)
+    except Exception as e:
+        print(f"ERROR: TTS generation failed after retries: {e}")
+        print("SOLUTION: This is a known issue with Bing blocking automated TTS requests.")
+        print("Try again in a few minutes, or consider using a different TTS service.")
+        sys.exit(1)
 
     # --- Step 4: Fetch footage ---
     print("\n[4/6] Fetching images from Pexels...")

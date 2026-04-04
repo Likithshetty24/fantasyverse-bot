@@ -5,7 +5,7 @@ from datetime import datetime
 
 def generate_script_and_metadata(news_items):
     genai.configure(api_key=os.environ['GEMINI_API_KEY'])
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 
     news_block = '\n'.join(
         f"{i+1}. {item['title']}\n   {item['summary']}"

@@ -53,7 +53,8 @@ def _generate_srt(text, duration, srt_path):
 
 
 def vtt_to_srt(vtt_path, srt_path):
-    """No-op: gTTS generates SRT directly. SRT already exists at subtitle_path."""
-    # subtitle_path passed to generate_voiceover IS the srt_path in main.py
-    # vtt_path and srt_path are the same file here — nothing to convert
-    pass
+    """Copy vtt_path to srt_path — gTTS already writes SRT format directly."""
+    import shutil
+    if os.path.exists(vtt_path):
+        shutil.copy(vtt_path, srt_path)
+        print(f"[tts_generator] SRT ready: {srt_path}")

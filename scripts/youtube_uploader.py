@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -9,17 +10,45 @@ SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
 CATEGORY_ENTERTAINMENT = '24'
 
 
+def refresh_access_token(client_id, client_secret, refresh_token):
+    """Directly call Google's token endpoint, bypassing google-auth reauth module."""
+    response = requests.post(
+        'https://oauth2.googleapis.com/token',
+        data={
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token',
+        },
+        timeout=30,
+    )
+    data = response.json()
+    if 'error' in data:
+        raise Exception(
+            f"Token refresh failed: {data['error']} — {data.get('error_description', '')}\n"
+            f"Full response: {data}"
+        )
+    return data['access_token']
+
+
 def get_youtube_client():
     secrets = json.loads(os.environ['YOUTUBE_CLIENT_SECRETS'])
-    # Support both Desktop App ("installed") and Web App ("web") OAuth client types
-    installed = secrets.get('installed') or secrets.get('web')
+    creds_data = secrets.get('installed') or secrets.get('web')
+
+    client_id = creds_data['client_id']
+    client_secret = creds_data['client_secret']
+    refresh_token = os.environ['YOUTUBE_REFRESH_TOKEN']
+
+    print("[youtube_uploader] Refreshing access token...")
+    access_token = refresh_access_token(client_id, client_secret, refresh_token)
+    print("[youtube_uploader] Access token obtained.")
 
     creds = Credentials(
-        token=None,
-        refresh_token=os.environ['YOUTUBE_REFRESH_TOKEN'],
-        token_uri=installed['token_uri'],
-        client_id=installed['client_id'],
-        client_secret=installed['client_secret'],
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri='https://oauth2.googleapis.com/token',
+        client_id=client_id,
+        client_secret=client_secret,
         scopes=SCOPES,
     )
 
@@ -33,7 +62,7 @@ def upload_video(video_path, title, description, tags):
         'snippet': {
             'title': title[:100],
             'description': description,
-            'tags': tags[:500],  # YouTube tag limit
+            'tags': tags,
             'categoryId': CATEGORY_ENTERTAINMENT,
             'defaultLanguage': 'en',
         },
@@ -47,7 +76,7 @@ def upload_video(video_path, title, description, tags):
         video_path,
         mimetype='video/mp4',
         resumable=True,
-        chunksize=10 * 1024 * 1024,  # 10MB chunks
+        chunksize=10 * 1024 * 1024,
     )
 
     print(f"[youtube_uploader] Uploading: {title}")

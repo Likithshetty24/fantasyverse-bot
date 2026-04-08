@@ -11,7 +11,8 @@ CATEGORY_ENTERTAINMENT = '24'
 
 def get_youtube_client():
     secrets = json.loads(os.environ['YOUTUBE_CLIENT_SECRETS'])
-    installed = secrets['installed']
+    # Support both Desktop App ("installed") and Web App ("web") OAuth client types
+    installed = secrets.get('installed') or secrets.get('web')
 
     creds = Credentials(
         token=None,

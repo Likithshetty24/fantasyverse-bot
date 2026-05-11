@@ -74,6 +74,8 @@ DESCRIPTION: [80-120 words, casual tone matching the script, end with a casual f
 TAGS: [15 comma-separated tags — mix broad (anime, manga, otaku, anime news 2026) and specific anime/character names]
 THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER", "OP IS COOKED"]
 BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR — for the on-screen red banner]
+FOCUS_ANIME: [The PRIMARY anime title this story is about — use the exact MyAnimeList name, e.g., "Jujutsu Kaisen", "One Piece", "Demon Slayer". One title only.]
+FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the story (e.g., "Gojo Satoru, Sukuna"). Leave empty if none mentioned.]
 SEARCH_TAGS: [8 hashtags starting with #]
 """
 
@@ -100,6 +102,9 @@ SEARCH_TAGS: [8 hashtags starting with #]
     tags           = [t.strip() for t in tags_raw.split(',') if t.strip()]
     thumbnail_text = extract('THUMBNAIL_TEXT')
     banner_tag     = extract('BANNER_TAG') or 'BREAKING'
+    focus_anime    = extract('FOCUS_ANIME')
+    focus_chars_raw = extract('FOCUS_CHARACTERS')
+    focus_characters = [c.strip() for c in focus_chars_raw.split(',') if c.strip()]
     search_tags    = extract('SEARCH_TAGS')
 
     if '#Shorts' not in title and '#shorts' not in title:
@@ -110,12 +115,17 @@ SEARCH_TAGS: [8 hashtags starting with #]
     print(f"[script_generator] Script: {len(script.split())} words")
     print(f"[script_generator] Title: {title}")
     print(f"[script_generator] Banner: {banner_tag}")
+    print(f"[script_generator] Focus anime: {focus_anime}")
+    if focus_characters:
+        print(f"[script_generator] Focus characters: {', '.join(focus_characters)}")
 
     return {
-        'script':         script,
-        'title':          title,
-        'description':    full_description,
-        'tags':           tags,
-        'thumbnail_text': thumbnail_text,
-        'banner_tag':     banner_tag.upper().strip(),
+        'script':           script,
+        'title':            title,
+        'description':      full_description,
+        'tags':             tags,
+        'thumbnail_text':   thumbnail_text,
+        'banner_tag':       banner_tag.upper().strip(),
+        'focus_anime':      focus_anime,
+        'focus_characters': focus_characters,
     }

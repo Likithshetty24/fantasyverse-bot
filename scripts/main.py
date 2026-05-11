@@ -44,12 +44,14 @@ def main():
     # 2. Generate director-style script + metadata
     print("\n[2/6] Generating script with Groq...")
     meta = generate_script_and_metadata(news_items)
-    script      = meta['script']
-    title       = meta['title']
-    description = meta['description']
-    tags        = meta['tags']
-    thumb_text  = meta['thumbnail_text']
-    banner_tag  = meta['banner_tag']
+    script           = meta['script']
+    title            = meta['title']
+    description      = meta['description']
+    tags             = meta['tags']
+    thumb_text       = meta['thumbnail_text']
+    banner_tag       = meta['banner_tag']
+    focus_anime      = meta.get('focus_anime', '')
+    focus_characters = meta.get('focus_characters', [])
 
     with open(os.path.join(WORK_DIR, 'script.txt'), 'w', encoding='utf-8') as f:
         f.write(script)
@@ -63,11 +65,17 @@ def main():
         print(f"ERROR: TTS failed: {e}")
         sys.exit(1)
 
-    # 4. Anime images
-    print("\n[4/6] Fetching anime imagery...")
+    # 4. Anime images — targeted to the specific anime + characters in this story
+    print("\n[4/6] Fetching anime imagery (targeted to story)...")
     images_dir  = os.path.join(WORK_DIR, 'images')
     pexels_key  = os.environ.get('PEXELS_API_KEY', '')
-    image_paths = fetch_footage(news_items, images_dir, pexels_key, target_count=12)
+    image_paths = fetch_footage(
+        focus_anime=focus_anime,
+        focus_characters=focus_characters,
+        output_dir=images_dir,
+        pexels_key=pexels_key,
+        target_count=12,
+    )
 
     # 5. Thumbnail + video
     print("\n[5/6] Generating thumbnail and video...")

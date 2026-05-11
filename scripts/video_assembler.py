@@ -1,11 +1,16 @@
 """
 video_assembler.py
-Builds the vertical Hindi horror Short.
-- 1080x1920, 30fps
-- Dark color grade, red accent
-- NO subtitles (full-bleed video)
-- Subtle channel watermark + brief story-title flash at the start
-- Slow Ken Burns zoom on each image for creeping dread
+Fantasy Verse anime news Short — director-style production.
+
+Production elements:
+  * 1080x1920 vertical, 30fps, 30-60 sec
+  * Fast cuts: every 1.5-2.5 sec
+  * Zoom-punch entry on each new shot (rapid 1.25x → 1.0x in 0.25s)
+  * White flash frames between cuts (1 frame = ~33ms)
+  * Lower-third red "BREAKING" / "LEAKED" / "RUMOR" banner (top-positioned)
+  * High-saturation anime color grade
+  * Channel watermark top-left
+  * NO subtitles, NO captions on screen
 """
 
 import os
@@ -13,250 +18,260 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
-# moviepy 1.0.3 calls Image.ANTIALIAS which was removed in Pillow 10.
-# Alias to LANCZOS (functionally identical) so .resize() works.
+# moviepy 1.0.3 + Pillow 10 compat shim
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
-    ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip,
+    ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, ColorClip,
 )
 
 WIDTH, HEIGHT = 1080, 1920
 FPS = 30
-SECONDS_PER_IMAGE = 5
 
-# Horror palette
-BLOOD_RED   = (180, 20, 20)
-DEEP_RED    = (120, 10, 10)
-TEXT_COLOR  = (240, 230, 220)
-BG_DARK     = (8, 5, 8)
+# Pacing: faster cuts later in the video for retention
+SHOT_DURATIONS = [3.2, 2.5, 2.2, 2.0, 1.9, 1.8, 1.7, 1.6, 1.7, 1.8, 2.0, 2.2]
 
-# Fonts — Devanagari needs Noto Sans Devanagari (installed via fonts-noto-core)
-FONT_HINDI_BOLD    = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-FONT_HINDI_REGULAR = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
-FONT_LATIN_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-FONT_LATIN_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+BRAND_PURPLE = (138, 43, 226)
+BANNER_RED   = (220, 30, 30)
+TEXT_COLOR   = (255, 255, 255)
+BG_DARK      = (8, 5, 14)
+
+FONT_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+FONT_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 
 
-def _font(path, size, fallback=FONT_LATIN_REGULAR):
-    for p in (path, fallback):
-        try:
-            return ImageFont.truetype(p, size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
+def _font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 # ---------------------------------------------------------------------------
-# Background prep — strong dark grade
+# Background preparation
 # ---------------------------------------------------------------------------
 
 def prepare_background(img_path):
-    """Crop to 1080x1920, blur slightly, darken heavily, push reds."""
+    """Crop to 9:16, mild blur, push anime saturation/contrast."""
     img = Image.open(img_path).convert('RGB')
 
-    img_ratio   = img.width / img.height
-    frame_ratio = WIDTH / HEIGHT
-    if img_ratio > frame_ratio:
+    img_r   = img.width / img.height
+    frame_r = WIDTH / HEIGHT
+    if img_r > frame_r:
         new_h = HEIGHT
-        new_w = int(HEIGHT * img_ratio)
+        new_w = int(HEIGHT * img_r)
     else:
         new_w = WIDTH
-        new_h = int(WIDTH / img_ratio)
+        new_h = int(WIDTH / img_r)
     img = img.resize((new_w, new_h), Image.LANCZOS)
 
     left = (new_w - WIDTH) // 2
     top  = (new_h - HEIGHT) // 2
     img  = img.crop((left, top, left + WIDTH, top + HEIGHT))
 
-    # Slight blur for cinematic feel
-    img = img.filter(ImageFilter.GaussianBlur(radius=3))
+    # Anime grade: bright, vibrant, slight blur for cinematic feel
+    img = img.filter(ImageFilter.GaussianBlur(radius=2))
+    img = ImageEnhance.Brightness(img).enhance(0.75)
+    img = ImageEnhance.Contrast(img).enhance(1.20)
+    img = ImageEnhance.Color(img).enhance(1.35)
 
-    # Heavy darkening + reduced saturation
-    img = ImageEnhance.Brightness(img).enhance(0.55)
-    img = ImageEnhance.Contrast(img).enhance(1.15)
-    img = ImageEnhance.Color(img).enhance(0.55)
-
-    # Red tint overlay for horror mood
-    arr = np.array(img).astype(np.int16)
-    arr[..., 0] = np.clip(arr[..., 0] + 12, 0, 255)   # bump red
-    arr[..., 1] = np.clip(arr[..., 1] - 8,  0, 255)   # reduce green
-    arr[..., 2] = np.clip(arr[..., 2] - 5,  0, 255)   # reduce blue
-    return arr.astype(np.uint8)
+    return np.array(img)
 
 
 def make_gradient_background():
-    """Deep red-black gradient — used when no images available."""
+    """Dark purple gradient — fallback only."""
     img  = Image.new('RGB', (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(img)
     for y in range(HEIGHT):
         t = y / HEIGHT
-        r = int(8  + 60  * t)
-        g = int(4  + 4   * t)
-        b = int(8  + 8   * t)
+        r = int(8  + 50 * t)
+        g = int(5  + 10 * t)
+        b = int(14 + 80 * t)
         draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
     return np.array(img)
 
 
 # ---------------------------------------------------------------------------
-# Watermark overlay (small, unobtrusive)
+# Overlay (watermark + banner) — baked into each frame
 # ---------------------------------------------------------------------------
 
-def add_watermark(frame_array):
-    """Tiny channel name in top-right corner."""
+def add_overlay(frame_array, banner_tag="BREAKING"):
     img  = Image.fromarray(frame_array)
     draw = ImageDraw.Draw(img)
 
-    font_hi = _font(FONT_HINDI_BOLD, 38, fallback=FONT_LATIN_BOLD)
-    text = "रात की कहानियाँ"
+    # Top dark gradient bar for legibility
+    bar_h = 130
+    for y in range(bar_h):
+        alpha = int(220 * (1 - y / bar_h))
+        draw.line([(0, y), (WIDTH, y)], fill=(0, 0, 0))
 
-    # Text box with red underline accent — top right
-    margin_r = 36
-    margin_t = 36
-    bbox     = draw.textbbox((0, 0), text, font=font_hi)
-    tw       = bbox[2] - bbox[0]
-    th       = bbox[3] - bbox[1]
+    # Purple accent stripe
+    draw.rectangle([0, bar_h - 4, WIDTH, bar_h], fill=BRAND_PURPLE)
 
-    x = WIDTH - tw - margin_r
-    y = margin_t
+    # Channel name top-left
+    font_brand = _font(FONT_BOLD, 38)
+    draw.text((30, 30), "⚡ FANTASY VERSE", fill=TEXT_COLOR, font=font_brand)
 
-    # Shadow
-    draw.text((x + 2, y + 2), text, fill=(0, 0, 0), font=font_hi)
-    draw.text((x, y),         text, fill=TEXT_COLOR, font=font_hi)
-    # Red accent underline
-    draw.rectangle([x, y + th + 8, x + tw, y + th + 12], fill=BLOOD_RED)
+    # Handle below
+    font_handle = _font(FONT_REGULAR, 24)
+    draw.text((30, 78), "Daily Anime News", fill=(200, 180, 255), font=font_handle)
+
+    # Lower-third red BREAKING banner (positioned at ~y=180 to avoid Shorts UI)
+    if banner_tag:
+        banner_y = bar_h + 30
+        # Red pill background
+        font_banner = _font(FONT_BOLD, 56)
+        tag_text = f"  {banner_tag}  "
+        bbox = draw.textbbox((0, 0), tag_text, font=font_banner)
+        bw = bbox[2] - bbox[0] + 30
+        bh = bbox[3] - bbox[1] + 25
+
+        bx = 30
+        # Drop shadow
+        draw.rectangle([bx + 4, banner_y + 4, bx + bw + 4, banner_y + bh + 4], fill=(0, 0, 0))
+        # Main banner
+        draw.rectangle([bx, banner_y, bx + bw, banner_y + bh], fill=BANNER_RED)
+        # Tiny white tab on left edge
+        draw.rectangle([bx, banner_y, bx + 8, banner_y + bh], fill=TEXT_COLOR)
+        # Banner text
+        draw.text((bx + 18, banner_y + 6), banner_tag, fill=TEXT_COLOR, font=font_banner)
 
     return np.array(img)
 
 
 # ---------------------------------------------------------------------------
-# Intro card — 2 second story-title flash
+# Effects: zoom punch + flash cut
 # ---------------------------------------------------------------------------
 
-def create_intro_card(title_text, duration=2.0):
+def zoom_punch_clip(bg_array, duration):
+    """ImageClip that starts at 1.25x zoom and snaps to 1.0x in 0.25s, then slowly drifts to 1.06x."""
+    clip = ImageClip(bg_array).set_duration(duration)
+    punch_dur = 0.25
+    drift_to = 1.06
+
+    def scale(t):
+        if t < punch_dur:
+            return 1.25 - (1.25 - 1.0) * (t / punch_dur)
+        # Slow drift
+        progress = (t - punch_dur) / max(duration - punch_dur, 0.01)
+        return 1.0 + (drift_to - 1.0) * progress
+
+    return clip.resize(scale).set_position('center')
+
+
+def flash_frame(duration=0.05):
+    """White ColorClip used between shots."""
+    return ColorClip(size=(WIDTH, HEIGHT), color=(255, 255, 255)).set_duration(duration)
+
+
+# ---------------------------------------------------------------------------
+# Intro / Outro
+# ---------------------------------------------------------------------------
+
+def create_intro_card(duration=1.8):
     img  = Image.new('RGB', (WIDTH, HEIGHT), BG_DARK)
     draw = ImageDraw.Draw(img)
 
-    # Slight noise / flicker pattern
-    for i in range(0, WIDTH, 6):
-        c = int(20 * abs(math.sin(i * 0.01)))
-        draw.line([(i, 0), (i, HEIGHT)], fill=(c, c // 4, c // 4))
+    # Diagonal accent stripes
+    for i in range(-HEIGHT, WIDTH, 12):
+        c = int(60 + 40 * abs(math.sin(i * 0.02)))
+        draw.line([(i, 0), (i + HEIGHT, HEIGHT)], fill=(c // 3, 0, c))
 
-    font_big   = _font(FONT_HINDI_BOLD, 95, fallback=FONT_LATIN_BOLD)
-    font_small = _font(FONT_HINDI_REGULAR, 42, fallback=FONT_LATIN_REGULAR)
+    font_big = _font(FONT_BOLD, 130)
+    font_sub = _font(FONT_BOLD, 56)
 
-    # Channel name big
-    draw.text((WIDTH // 2, HEIGHT // 2 - 100), "रात की",     fill=BLOOD_RED,  font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 20),  "कहानियाँ",   fill=BLOOD_RED,  font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 160), "एक नई डरावनी कहानी...",
-              fill=TEXT_COLOR, font=font_small, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 130), "FANTASY", fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 20),  "VERSE",   fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 160), "ANIME NEWS", fill=TEXT_COLOR, font=font_sub, anchor="mm")
 
-    # Red bar
     draw.rectangle(
-        [WIDTH // 2 - 220, HEIGHT // 2 + 220, WIDTH // 2 + 220, HEIGHT // 2 + 224],
-        fill=BLOOD_RED,
+        [WIDTH // 2 - 240, HEIGHT // 2 + 220, WIDTH // 2 + 240, HEIGHT // 2 + 226],
+        fill=BRAND_PURPLE,
     )
 
-    return ImageClip(np.array(img)).set_duration(duration).fadein(0.4).fadeout(0.3)
+    return ImageClip(np.array(img)).set_duration(duration).fadein(0.2)
 
 
-# ---------------------------------------------------------------------------
-# Outro card — 3 sec subscribe CTA
-# ---------------------------------------------------------------------------
-
-def create_outro_card(duration=3.0):
+def create_outro_card(duration=2.5):
     img  = Image.new('RGB', (WIDTH, HEIGHT), BG_DARK)
     draw = ImageDraw.Draw(img)
 
-    font_big   = _font(FONT_HINDI_BOLD, 75,  fallback=FONT_LATIN_BOLD)
-    font_med   = _font(FONT_HINDI_BOLD, 55,  fallback=FONT_LATIN_BOLD)
-    font_small = _font(FONT_HINDI_REGULAR, 36, fallback=FONT_LATIN_REGULAR)
+    font_big   = _font(FONT_BOLD, 85)
+    font_med   = _font(FONT_BOLD, 55)
+    font_small = _font(FONT_REGULAR, 38)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 220), "डर लगा?",          fill=TEXT_COLOR, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 100), "तो चैनल सब्सक्राइब करें", fill=BLOOD_RED,  font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 0),   "और घंटी ज़रूर दबाएं",       fill=BLOOD_RED,  font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 140), "हर रात नई कहानी",      fill=TEXT_COLOR, font=font_small, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 200), "Raat Ki Kahaniyan",  fill=(160, 160, 160), font=font_small, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 200), "FOLLOW FOR",      fill=TEXT_COLOR, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 90),  "DAILY ANIME NEWS", fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 60),  "LIKE • SUBSCRIBE • COMMENT", fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 170), "@FantasyVerse",   fill=(180, 160, 255), font=font_small, anchor="mm")
 
-    return ImageClip(np.array(img)).set_duration(duration).fadein(0.4).fadeout(0.4)
-
-
-# ---------------------------------------------------------------------------
-# Ken Burns slow zoom effect
-# ---------------------------------------------------------------------------
-
-def _ken_burns_clip(bg_array, duration, zoom_start=1.0, zoom_end=1.08):
-    """Creates a slow zoom effect on a static image."""
-    clip = ImageClip(bg_array).set_duration(duration)
-
-    def resize_func(t):
-        progress = t / duration
-        return zoom_start + (zoom_end - zoom_start) * progress
-
-    return clip.resize(resize_func).set_position('center')
+    return ImageClip(np.array(img)).set_duration(duration).fadein(0.2).fadeout(0.3)
 
 
 # ---------------------------------------------------------------------------
-# Main build
+# Build
 # ---------------------------------------------------------------------------
 
-def build_video(image_paths, audio_path, output_path, story_title=""):
-    print("[video_assembler] Building horror Short (1080x1920)...")
+def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
+    print("[video_assembler] Building director-style anime Short...")
 
     audio          = AudioFileClip(audio_path)
     total_duration = audio.duration
-    print(f"[video_assembler] Audio duration: {total_duration:.1f}s")
+    print(f"[video_assembler] Audio: {total_duration:.1f}s")
 
-    # Prepare backgrounds (with watermark baked in)
     if image_paths:
-        backgrounds = [add_watermark(prepare_background(p)) for p in image_paths]
+        backgrounds = [add_overlay(prepare_background(p), banner_tag) for p in image_paths]
     else:
-        backgrounds = [add_watermark(make_gradient_background())]
+        backgrounds = [add_overlay(make_gradient_background(), banner_tag)]
 
-    # Reserve first 2s for intro card, rest for content + outro
-    intro_dur = 2.0
-    outro_dur = 3.0
-    content_dur = max(total_duration - intro_dur + 1.0, 5.0)  # overlap intro slightly
+    intro_dur = 1.8
+    outro_dur = 2.5
+    content_dur = max(total_duration - intro_dur + 0.5, 5.0)
 
-    # Build content clips
+    # Generate content shots with zoom punch + flash cuts
     content_clips = []
     current_t = 0.0
-    img_index = 0
+    img_idx = 0
+    shot_idx = 0
 
     while current_t < content_dur:
         remaining = content_dur - current_t
-        clip_dur  = min(SECONDS_PER_IMAGE, remaining)
-        if clip_dur < 0.2:
+        target = SHOT_DURATIONS[shot_idx % len(SHOT_DURATIONS)]
+        clip_dur = min(target, remaining)
+        if clip_dur < 0.4:
             break
 
-        bg = backgrounds[img_index % len(backgrounds)]
-        clip = (
-            _ken_burns_clip(bg, clip_dur)
-            .set_start(current_t)
-            .crossfadein(0.5)
-        )
-        content_clips.append(clip)
-        current_t += clip_dur
-        img_index += 1
+        bg = backgrounds[img_idx % len(backgrounds)]
+        shot = zoom_punch_clip(bg, clip_dur).set_start(current_t)
+        content_clips.append(shot)
 
-    # Stitch: intro -> content -> outro
-    intro = create_intro_card(story_title, intro_dur)
+        # Flash frame between shots (skip after last shot)
+        if remaining > target + 0.1:
+            flash = flash_frame(0.06).set_start(current_t + clip_dur - 0.03)
+            content_clips.append(flash)
+
+        current_t += clip_dur
+        img_idx += 1
+        shot_idx += 1
+
+    # Stitch: intro + content (composite) + outro
+    intro = create_intro_card(intro_dur)
     outro = create_outro_card(outro_dur)
 
-    all_clips = [intro] + content_clips + [outro]
-    final = concatenate_videoclips(all_clips, method='compose', padding=-0.4)
+    # Content needs to be a single composite
+    content = CompositeVideoClip(content_clips, size=(WIDTH, HEIGHT)).set_duration(content_dur)
 
-    # Set audio (trim/extend so video ends with outro)
-    final = final.set_audio(audio)
+    full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.2)
+    full = full.set_audio(audio)
 
-    final.write_videofile(
+    full.write_videofile(
         output_path,
         fps=FPS,
         codec='libx264',
         audio_codec='aac',
         preset='medium',
-        bitrate='4500k',
+        bitrate='5000k',
         threads=2,
         logger=None,
     )

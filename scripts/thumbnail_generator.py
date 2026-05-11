@@ -1,31 +1,29 @@
 """
 thumbnail_generator.py
-1280x720 thumbnail for Raat Ki Kahaniyan horror Shorts.
-Dark + blood-red + Hindi text.
+1280x720 thumbnail for Fantasy Verse anime news Shorts.
+Bold yellow text with black stroke + red BREAKING badge.
 """
 
-import os
 import textwrap
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 THUMB_W, THUMB_H = 1280, 720
 
-BLOOD_RED   = (190, 25, 25)
-TEXT_COLOR  = (245, 235, 220)
-BG_DARK     = (8, 5, 8)
+BRAND_PURPLE = (138, 43, 226)
+ACCENT_YELLOW = (255, 220, 0)
+BANNER_RED   = (220, 30, 30)
+TEXT_COLOR   = (255, 255, 255)
+BG_DARK      = (8, 5, 14)
 
-FONT_HINDI_BOLD    = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-FONT_HINDI_REGULAR = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
-FONT_LATIN_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+FONT_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+FONT_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 
 
-def _font(path, size, fallback=FONT_LATIN_BOLD):
-    for p in (path, fallback):
-        try:
-            return ImageFont.truetype(p, size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
+def _font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 def _prepare_bg(img_path):
@@ -45,58 +43,46 @@ def _prepare_bg(img_path):
     top  = (new_h - THUMB_H) // 2
     img  = img.crop((left, top, left + THUMB_W, top + THUMB_H))
 
-    img = img.filter(ImageFilter.GaussianBlur(radius=3))
-    img = ImageEnhance.Brightness(img).enhance(0.4)
-    img = ImageEnhance.Contrast(img).enhance(1.2)
-    img = ImageEnhance.Color(img).enhance(0.6)
+    img = img.filter(ImageFilter.GaussianBlur(radius=2))
+    img = ImageEnhance.Brightness(img).enhance(0.55)
+    img = ImageEnhance.Color(img).enhance(1.25)
+    img = ImageEnhance.Contrast(img).enhance(1.15)
     return img
 
 
-def _draw_vignette(draw):
-    """Dark vignette around edges to focus center."""
-    # Top-bottom dark fades
-    for y in range(120):
-        alpha = int(170 * (1 - y / 120))
-        draw.line([(0, y), (THUMB_W, y)], fill=(0, 0, 0))
-    for y in range(THUMB_H - 120, THUMB_H):
-        alpha = int(170 * (1 - (THUMB_H - y) / 120))
-        draw.line([(0, y), (THUMB_W, y)], fill=(0, 0, 0))
-
-
 def _draw_thumbnail_text(draw, text):
-    """Big bold red Hindi text in center."""
-    lines = textwrap.wrap(text, width=10)[:2] if text else ["डरावनी कहानी"]
+    """Large yellow Hindi-style text with thick black stroke."""
+    lines = textwrap.wrap(text.upper(), width=12)[:2] if text else ["BREAKING ANIME NEWS"]
 
-    font_size = 130 if max(len(l) for l in lines) <= 6 else 100
-    font = _font(FONT_HINDI_BOLD, font_size)
+    font_size = 130 if max(len(l) for l in lines) <= 10 else 100
+    font = _font(FONT_BOLD, font_size)
 
-    total_h = len(lines) * (font_size + 20)
-    y       = (THUMB_H - total_h) // 2 - 20
+    total_h = len(lines) * (font_size + 16)
+    y       = (THUMB_H - total_h) // 2 + 20
 
     for line in lines:
-        # Black shadow (heavy)
-        for dx, dy in [(-3, 3), (3, 3), (-3, -3), (3, -3), (0, 5)]:
+        # Thick black stroke
+        for dx, dy in [(-4, 4), (4, 4), (-4, -4), (4, -4), (-4, 0), (4, 0), (0, -4), (0, 4)]:
             draw.text((THUMB_W // 2 + dx, y + dy), line, fill=(0, 0, 0), font=font, anchor="mm")
-        # Red text
-        draw.text((THUMB_W // 2, y), line, fill=BLOOD_RED, font=font, anchor="mm")
-        y += font_size + 20
+        # Yellow fill
+        draw.text((THUMB_W // 2, y), line, fill=ACCENT_YELLOW, font=font, anchor="mm")
+        y += font_size + 16
 
 
 def _draw_brand(draw):
-    """Channel name bottom + tagline top."""
-    # Top tagline
-    font_tag = _font(FONT_HINDI_BOLD, 38)
-    draw.rectangle([20, 25, 360, 80], fill=BLOOD_RED)
-    draw.text((30, 32), "सच्ची कहानी", fill=TEXT_COLOR, font=font_tag)
+    # Top-left BREAKING badge
+    font_tag = _font(FONT_BOLD, 42)
+    draw.rectangle([20, 25, 320, 85], fill=BANNER_RED)
+    draw.rectangle([20, 25, 30, 85], fill=TEXT_COLOR)
+    draw.text((40, 32), "BREAKING", fill=TEXT_COLOR, font=font_tag)
 
     # Bottom channel name
-    font_brand = _font(FONT_HINDI_BOLD, 44)
-    draw.text((THUMB_W // 2, THUMB_H - 50), "रात की कहानियाँ",
+    font_brand = _font(FONT_BOLD, 48)
+    draw.text((THUMB_W // 2, THUMB_H - 50), "⚡ FANTASY VERSE",
               fill=TEXT_COLOR, font=font_brand, anchor="mm")
 
 
 def generate_thumbnail(image_paths, thumbnail_text, output_path):
-    """Generate 1280x720 horror thumbnail."""
     if image_paths:
         try:
             bg = _prepare_bg(image_paths[0])
@@ -106,7 +92,6 @@ def generate_thumbnail(image_paths, thumbnail_text, output_path):
         bg = Image.new('RGB', (THUMB_W, THUMB_H), BG_DARK)
 
     draw = ImageDraw.Draw(bg)
-    _draw_vignette(draw)
     _draw_thumbnail_text(draw, thumbnail_text)
     _draw_brand(draw)
 

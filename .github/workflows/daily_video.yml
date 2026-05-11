@@ -1,9 +1,8 @@
-name: Raat Ki Kahaniyan Daily Short
+name: Fantasy Verse Daily Anime Short
 
 on:
   schedule:
-    # 8 PM IST = 14:30 UTC — peak prime time for Indian audience
-    - cron: '30 14 * * *'
+    - cron: '0 20 * * *'   # 8 PM UTC = peak YouTube traffic
   workflow_dispatch:
 
 jobs:
@@ -15,17 +14,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (incl. Hindi fonts)
+      - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y \
-            ffmpeg \
-            fonts-liberation \
-            fonts-noto-core \
-            fonts-noto-cjk \
-            fonts-indic
-          # Verify Devanagari font is available
-          fc-list | grep -i devanagari | head -5 || echo "Devanagari font check"
+          sudo apt-get install -y ffmpeg fonts-liberation fonts-noto-core
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -36,7 +28,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Raat Ki Kahaniyan Bot
+      - name: Run Fantasy Verse Bot
         env:
           GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}

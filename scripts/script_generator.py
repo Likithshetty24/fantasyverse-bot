@@ -1,46 +1,71 @@
+"""
+script_generator.py
+Generates a 60-90 sec Hindi horror story for Raat Ki Kahaniyan,
+plus YouTube metadata (title, description, tags, thumbnail text).
+"""
+
 import os
 import re
 from groq import Groq
-from datetime import datetime
 
 
-def generate_script_and_metadata(news_items):
+MODE_INSTRUCTIONS = {
+    'fiction': (
+        "Write a fictional horror story with a sharp twist at the end. "
+        "Build tension slowly, then deliver a shocking reveal in the final 2 sentences. "
+        "Keep it grounded — no over-the-top monsters, just creeping dread."
+    ),
+    'true_incident': (
+        "Write the story as if narrating a TRUE incident the speaker personally heard from someone. "
+        "Use phrases like 'meri dost ke saath hua tha' or 'yeh sachi kahani hai'. "
+        "Add specific Indian details (city, locality, year) to make it feel real."
+    ),
+    'folklore': (
+        "Write a story rooted in Indian folklore — chudail, daayan, bhoot, pishach, aatma. "
+        "Reference traditional warnings (peepal tree at night, ulte pair, white saree, etc). "
+        "Style: like an elder narrating an old village tale."
+    ),
+}
+
+
+def generate_script_and_metadata(theme):
+    """
+    theme = {'mode': 'fiction'|'true_incident'|'folklore', 'setting': '...'}
+    """
     client = Groq(api_key=os.environ['GROQ_API_KEY'])
 
-    news_block = '\n'.join(
-        f"{i+1}. {item['title']}\n   {item['summary']}"
-        for i, item in enumerate(news_items)
-    )
+    mode = theme['mode']
+    setting = theme['setting']
+    instruction = MODE_INSTRUCTIONS[mode]
 
-    today = datetime.now().strftime('%B %d, %Y')
+    prompt = f"""You write viral Hindi horror stories for a YouTube Shorts channel called "Raat Ki Kahaniyan".
 
-    prompt = f"""You are a script writer for a YouTube Shorts anime news channel called Fantasy Verse.
-
-Today is {today}. Write a YouTube SHORT script based on these trending anime news items:
-
-{news_block}
+TODAY'S STORY:
+- Mode: {mode}
+- Setting / theme: {setting}
+- {instruction}
 
 SCRIPT REQUIREMENTS:
-- Total length: EXACTLY 200-230 words (reads in 60-75 seconds — this is a YouTube Short)
-- Start with: "What is up everyone! Welcome to Fantasy Verse. Huge anime news today, let's go!"
-- Pick the TOP 2-3 most exciting stories only — no fluff
-- Each story: 2-3 punchy sentences with genuine hype and fan reaction
-- End with: "Smash that like button, subscribe to Fantasy Verse, and drop your thoughts below. See you next Short!"
-- NO section headers, NO stage directions, NO filler — tight punchy narration only
+- 130-170 words, in **pure Hindi Devanagari script ONLY** (no English words, no Hinglish, no roman letters)
+- First sentence MUST be a hook — pull the viewer in immediately
+- Tone: like someone whispering a scary story to a friend at night
+- Build dread gradually, then end with a chilling twist or revelation in the last 2 sentences
+- DO NOT use stage directions, sound effects in brackets, or formatting — just clean narration
+- End with this exact line: "अगर यह कहानी आपको डरा गई, तो चैनल को सब्सक्राइब करें और घंटी दबाएं।"
 
-After the script output EXACTLY this block (each on its own line, nothing else after):
-TITLE: [YouTube title max 70 chars, MUST contain #Shorts, year, power word like HUGE or SHOCKING]
-DESCRIPTION: [80-120 word YouTube description, naturally include keywords, end with subscribe CTA]
-TAGS: [15 comma-separated tags, mix of broad and specific anime terms]
-THUMBNAIL_TEXT: [3-5 ALL CAPS bold words for thumbnail overlay]
-SEARCH_TAGS: [8 hashtags starting with # for end of description]
+After the script, output EXACTLY this block (each on its own line):
+TITLE: [Hindi Devanagari title, max 65 chars, MUST include #Shorts and a hook word like सच्ची, डरावनी, रात, भूत]
+DESCRIPTION: [80-120 words in Hindi, describe story without spoiling twist, end with subscribe CTA]
+TAGS: [15 comma-separated tags — mix Hindi and English, include "horror stories hindi", "scary stories", "bhoot ki kahani", etc]
+THUMBNAIL_TEXT: [2-4 ALL CAPS Hindi words for thumbnail overlay, very punchy — e.g., "वो रात", "सच्ची कहानी"]
+SEARCH_TAGS: [8 hashtags starting with # — mix #HorrorStories #HindiHorror #BhootKiKahani #ScaryStories etc]
 """
 
     response = client.chat.completions.create(
         model='llama-3.3-70b-versatile',
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=0.8,
-        max_tokens=1500,
+        temperature=0.85,
+        max_tokens=1800,
     )
 
     raw = response.choices[0].message.content
@@ -60,13 +85,14 @@ SEARCH_TAGS: [8 hashtags starting with # for end of description]
     thumbnail_text = extract('THUMBNAIL_TEXT')
     search_tags    = extract('SEARCH_TAGS')
 
-    # Ensure #Shorts is in the title (required for YouTube Shorts discovery)
+    # Ensure #Shorts in title
     if '#Shorts' not in title and '#shorts' not in title:
-        title = title[:65] + ' #Shorts'
+        title = title[:60] + ' #Shorts'
 
     full_description = f"{description}\n\n{search_tags}"
 
-    print(f"[script_generator] Script: {len(script.split())} words")
+    print(f"[script_generator] Mode: {mode}")
+    print(f"[script_generator] Script length: {len(script)} chars")
     print(f"[script_generator] Title: {title}")
 
     return {
@@ -75,4 +101,5 @@ SEARCH_TAGS: [8 hashtags starting with # for end of description]
         'description':    full_description,
         'tags':           tags,
         'thumbnail_text': thumbnail_text,
+        'mode':           mode,
     }

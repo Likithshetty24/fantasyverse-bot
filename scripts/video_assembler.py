@@ -54,7 +54,7 @@ def make_gradient_background(width=WIDTH, height=HEIGHT):
     return np.array(img)
 
 
-def add_branding_overlay(frame_array, channel_name="FantasyVerse Anime News"):
+def add_branding_overlay(frame_array, channel_name="DejuShetty Anime News"):
     """Add top banner and bottom subtitle bar to a frame."""
     img = Image.fromarray(frame_array)
     draw = ImageDraw.Draw(img)
@@ -102,7 +102,7 @@ def create_intro_card(duration=3):
         font_sub = font_big
 
     # Center text
-    title = "FANTASYVERSE"
+    title = "DEJUSHETTY"
     subtitle = "ANIME NEWS"
 
     draw.text((WIDTH // 2, HEIGHT // 2 - 80), title, fill=BRAND_COLOR, font=font_big, anchor="mm")
@@ -130,7 +130,7 @@ def create_outro_card(duration=4):
 
     draw.text((WIDTH // 2, HEIGHT // 2 - 120), "THANKS FOR WATCHING!", fill=TEXT_COLOR, font=font_big, anchor="mm")
     draw.text((WIDTH // 2, HEIGHT // 2 - 20), "👍  LIKE  •  SUBSCRIBE  •  COMMENT", fill=BRAND_COLOR, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 60), "@FantasyVerse_24", fill=(180, 180, 180), font=font_small, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 60), "@DejuShetty-u2q", fill=(180, 180, 180), font=font_small, anchor="mm")
 
     return ImageClip(np.array(img)).set_duration(duration).fadein(0.5).fadeout(0.5)
 

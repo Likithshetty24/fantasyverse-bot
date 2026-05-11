@@ -13,7 +13,7 @@ def generate_script_and_metadata(news_items):
 
     today = datetime.now().strftime('%B %d, %Y')
 
-    prompt = f"""You are a script writer for a popular YouTube anime news channel called FantasyVerse.
+    prompt = f"""You are a script writer for a popular YouTube anime news channel called DejuShetty.
 
 Today is {today}. Write a YouTube video script based on these trending anime news items:
 
@@ -21,10 +21,10 @@ Today is {today}. Write a YouTube video script based on these trending anime new
 
 SCRIPT REQUIREMENTS:
 - Total length: 600-750 words (reads in about 4-5 minutes)
-- Start with: "What is up FantasyVerse! Welcome back to your number one source for anime news. I'm your host, and today we are covering some huge stories from the anime world. Let's dive in!"
+- Start with: "What is up everyone! Welcome back to your number one source for anime news. I'm your host, and today we are covering some huge stories from the anime world. Let's dive in!"
 - Cover each news item with energy and fan commentary (not just repeating the headline)
 - Add your personal hype, reactions, and what fans are saying online
-- End with: "That's all for today's anime news roundup! If you enjoyed this video, smash that like button and subscribe to FantasyVerse so you never miss a single anime update. Drop your thoughts in the comments below — I want to hear from you. Peace!"
+- End with: "That's all for today's anime news roundup! If you enjoyed this video, smash that like button and subscribe to DejuShetty so you never miss a single anime update. Drop your thoughts in the comments below — I want to hear from you. Peace!"
 - NO section headers, NO stage directions, just clean spoken narration
 
 After the script, output EXACTLY in this format (each on its own line):

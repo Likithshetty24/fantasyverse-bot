@@ -136,6 +136,9 @@ Thumbs.db
 # Project-specific files
 output/
 temp/
+downloads/
+
+# Video/audio files (generated output)
 *.mp4
 *.avi
 *.mov
@@ -143,8 +146,31 @@ temp/
 *.webm
 *.wav
 *.mp3
-credentials.json
-config.json
 
-# Secret files
+# Subtitle files (generated output)
+*.srt
+*.vtt
+*.ass
+
+# Secret & credential files — NEVER commit these
+client_secrets.json
+client_secret*.json
+credentials.json
+token.json
+token.pickle
+config.json
 secrets.txt
+.env.local
+.env.production
+
+# Runtime working directories created by the bot
+fantasyverse_run/
+/tmp/
+
+# Downloaded footage/images
+scripts/images/
+images/
+
+# Script output logs
+scripts/script.txt
+script.txt

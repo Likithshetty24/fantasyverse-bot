@@ -11,7 +11,7 @@ from footage_fetcher import fetch_footage
 from video_assembler import build_video
 from youtube_uploader import upload_video
 
-WORK_DIR = '/tmp/fantasyverse_run'
+WORK_DIR = '/tmp/dejushetty_run'
 
 
 def cleanup():
@@ -21,7 +21,7 @@ def cleanup():
 
 def main():
     print(f"\n{'='*60}")
-    print(f"FantasyVerse Bot — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"DejuShetty Bot — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
 
     os.makedirs(WORK_DIR, exist_ok=True)

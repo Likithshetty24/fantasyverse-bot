@@ -21,7 +21,7 @@ def cleanup():
 
 def main():
     print(f"\n{'='*60}")
-    print(f"DejuShetty Bot — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Fantasy Verse Bot — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
 
     os.makedirs(WORK_DIR, exist_ok=True)

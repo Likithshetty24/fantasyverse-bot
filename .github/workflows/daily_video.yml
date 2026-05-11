@@ -42,9 +42,11 @@ jobs:
           echo "Downloading Kokoro ONNX model (~280 MB)..."
           wget -q --show-progress -O /tmp/kokoro/kokoro-v1.0.onnx \
             https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
-          echo "Downloading voices file (~20 MB)..."
+          echo "Downloading voices file (~25 MB)..."
           wget -q --show-progress -O /tmp/kokoro/voices.bin \
-            https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices.bin
+            https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+          echo "Verifying downloads..."
+          ls -lh /tmp/kokoro/
           echo "Kokoro models ready."
 
       - name: Run Fantasy Verse Bot

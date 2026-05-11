@@ -1,10 +1,9 @@
-name: DejuShetty Daily Anime Video
-
+name: Fantasy Verse Daily Shorts
 
 on:
   schedule:
-    - cron: '0 20 * * *'   # 8 PM UTC = 3 PM EST = 8 PM UK — peak YouTube traffic
-  workflow_dispatch:        # Allow manual trigger from GitHub UI
+    - cron: '0 20 * * *'   # 8 PM UTC = 3 PM EST = peak YouTube traffic
+  workflow_dispatch:        # Manual trigger from GitHub UI
 
 jobs:
   create-and-upload:
@@ -29,15 +28,31 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Write client secrets file
-        run: echo '${{ secrets.YOUTUBE_CLIENT_SECRETS }}' > client_secrets.json
+      - name: Cache Kokoro TTS models
+        id: kokoro-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/kokoro
+          key: kokoro-models-v1.0
 
-      - name: Run DejuShetty Bot
+      - name: Download Kokoro TTS models
+        if: steps.kokoro-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/kokoro
+          echo "Downloading Kokoro ONNX model (~280 MB)..."
+          wget -q --show-progress -O /tmp/kokoro/kokoro-v1.0.onnx \
+            https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+          echo "Downloading voices file (~20 MB)..."
+          wget -q --show-progress -O /tmp/kokoro/voices.bin \
+            https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices.bin
+          echo "Kokoro models ready."
+
+      - name: Run Fantasy Verse Bot
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          YOUTUBE_CLIENT_SECRETS: ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GROQ_API_KEY:            ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CLIENT_SECRETS:  ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
+          YOUTUBE_REFRESH_TOKEN:   ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          KOKORO_MODEL_DIR:        /tmp/kokoro
         working-directory: scripts
         run: python main.py
 

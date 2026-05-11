@@ -12,6 +12,12 @@ import os
 import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+
+# moviepy 1.0.3 calls Image.ANTIALIAS which was removed in Pillow 10.
+# Alias to LANCZOS (functionally identical) so .resize() works.
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
+
 from moviepy.editor import (
     ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip,
 )

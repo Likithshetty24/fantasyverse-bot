@@ -1,9 +1,11 @@
 """
 script_generator.py
-Director-style anime news Shorts script for Fantasy Verse.
-The prompt is heavily tuned to make Groq's output sound like a real
-human creator, not an AI narrator — short sentences, contractions,
-casual filler, no marketing buzzwords.
+Generates the Short script using one of 7 content formats, chosen by
+trend_picker based on what's trending and whether news exists.
+
+Each format has its own prompt so the script structure matches the
+content type — a "top 5 moments" script is paced differently from
+a "news commentary" script.
 """
 
 import os
@@ -17,73 +19,240 @@ WRITING STYLE — sound like a real person, NOT an AI:
 - Use contractions everywhere: don't, can't, it's, they're, you'd, gonna, kinda
 - Short, punchy sentences. Most under 12 words. Mix sentence lengths.
 - Drop natural filler occasionally: "okay so", "look", "honestly", "like", "basically", "wait"
-- Strategic ellipses ("...") create natural pauses — use them at tension moments
+- Strategic ellipses ("...") for natural pauses at tension moments
 - Sound like you're texting a friend who's also an anime fan, not reading a press release
-- Personal hooks like: "I just saw this and...", "Bro, you're not ready", "Wait till you hear what they did"
+- Personal hooks: "I just saw this and...", "Bro, you're not ready", "Wait till you hear this"
 - NEVER say robotic phrases: "It has been announced", "We are excited to share", "In other news"
-- Replace marketing-speak with casual variants:
-    "smash subscribe" → "hit follow" / "tap that subscribe" / "don't sleep on the channel"
-    "amazing news" → "this is wild" / "this is actually insane"
-    "stay tuned" → "I'll keep you posted" / "more on this soon"
+- Replace marketing-speak: "smash subscribe" → "hit follow" / "tap subscribe" / "don't sleep on this channel"
 - React like a fan, not a reporter: "yo", "no way", "I'm dead", "this hits different"
-- Use specific numbers/dates if available — vague AI-sounding statements feel fake
 """.strip()
 
 
-def generate_script_and_metadata(news_items):
-    client = Groq(api_key=os.environ['GROQ_API_KEY'])
+META_BLOCK_INSTRUCTIONS = """
+After the script, output EXACTLY this block:
+TITLE: [under 70 chars, MUST include #Shorts and the anime name, no clickbait emojis]
+DESCRIPTION: [80-120 words, casual tone matching the script, end with casual follow CTA]
+TAGS: [15 comma-separated tags, mix broad (anime, manga, otaku, anime 2026) and specific anime/character names]
+THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER"]
+BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR or TRENDING]
+FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the script. Empty if none.]
+SEARCH_TAGS: [8 hashtags starting with #]
+""".strip()
 
-    news_block = '\n'.join(
-        f"{i+1}. {item['title']}\n   {item['summary']}"
-        for i, item in enumerate(news_items)
-    )
 
-    today = datetime.now().strftime('%B %d, %Y')
+# ---------------------------------------------------------------------------
+# Per-format prompts
+# ---------------------------------------------------------------------------
 
-    prompt = f"""You are a 23-year-old anime YouTuber writing your daily Shorts script for the channel "Fantasy Verse". You're a real fan first — you actually watch this stuff.
+def _prompt_news_commentary(anime_title, synopsis, news):
+    return f"""You are a 23-year-old anime YouTuber doing the daily Shorts script for "Fantasy Verse".
 
-Today is {today}. Pick the SINGLE most exciting story from this feed and write a 30-50 second narration:
+TODAY'S STORY:
+Anime: {anime_title} (one of the most-watched anime right now)
+Quick context: {synopsis}
+Recent news: {news['title']}
+News details: {news['summary']}
 
-{news_block}
+Write a 30-50 second high-energy reaction video about this news.
+
+STRUCTURE:
+1. HOOK (5-8 words, 0-3 sec) — shocked reaction or hot take
+2. THE NEWS (5-15 sec) — what happened, one or two short sentences
+3. REACTION + DETAILS (15-40 sec) — your take, fan reactions, what it means
+4. CLOSING (40-50 sec) — the "so what" + a real question to drive comments
+
+LENGTH: 75-115 words.
 
 {HUMAN_VOICE_RULES}
 
-STRUCTURE (write as flowing narration, no labels):
-
-[HOOK — 5-8 words, first 2-3 sec]
-Punch them in the face with a hot take or shocking claim. Examples:
-- "Okay this Chainsaw Man leak is insane."
-- "I literally cannot believe this just happened."
-- "Bro, One Piece fans are not okay right now."
-
-[THE NEWS — 5-15 sec]
-What happened, in one or two short sentences. Be specific.
-
-[REACTION + DETAILS — 15-40 sec]
-2-3 micro-beats with your actual reaction. Reference fans on Twitter, throw in your take, build the hype or dread. Mark rumors clearly with "rumored", "supposedly", "not confirmed yet".
-
-[CLOSING — 40-50 sec]
-Drop the "so what" in one line. Ask a real question that invites debate.
-Close with a casual subscribe ask — never use the words "smash" or "amazing".
-
-LENGTH: 75-115 words. That's it. Tight. No fluff. Every sentence earns its place.
-
-After the script, output EXACTLY this block:
-TITLE: [under 70 chars, MUST include #Shorts, include the anime name, no clickbait emojis]
-DESCRIPTION: [80-120 words, casual tone matching the script, end with a casual follow CTA]
-TAGS: [15 comma-separated tags — mix broad (anime, manga, otaku, anime news 2026) and specific anime/character names]
-THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER", "OP IS COOKED"]
-BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR — for the on-screen red banner]
-FOCUS_ANIME: [The PRIMARY anime title this story is about — use the exact MyAnimeList name, e.g., "Jujutsu Kaisen", "One Piece", "Demon Slayer". One title only.]
-FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the story (e.g., "Gojo Satoru, Sukuna"). Leave empty if none mentioned.]
-SEARCH_TAGS: [8 hashtags starting with #]
+{META_BLOCK_INSTRUCTIONS}
 """
+
+
+def _prompt_character_spotlight(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a character spotlight Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending, one of the most-watched right now):
+{anime_title}
+Quick context: {synopsis}
+
+Pick ONE iconic character from this anime and break down why they're elite — power, personality, character arc, or a single legendary moment.
+
+STRUCTURE:
+1. HOOK (5-8 words) — bold claim about the character ("Gojo Satoru is anime's most overpowered character. Here's why.")
+2. WHO THEY ARE (5-15 sec) — quick intro
+3. WHY THEY'RE ELITE (15-40 sec) — 2-3 specific reasons with examples
+4. CLOSING (40-50 sec) — your hot take + ask viewers for their pick
+
+LENGTH: 80-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_top_moments(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "Top 3 Moments" Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Pick the TOP 3 most shocking, hype, or emotional moments from this anime and rank them. Be specific with episode references where possible.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "These 3 moments broke anime Twitter."
+2. NUMBER 3 (8 sec) — set up briefly, then the moment, your reaction
+3. NUMBER 2 (8 sec) — same pattern
+4. NUMBER 1 (12 sec) — bigger build, the moment, why it's #1
+5. CLOSING (5 sec) — ask viewers what they'd put at #1
+
+LENGTH: 90-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_power_scaling(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a power-scaling debate Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Set up a fan-favorite "who would win" matchup involving a character from this anime vs another iconic anime character. Argue ONE side with conviction, then ask viewers.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "Most fans get this matchup wrong."
+2. THE MATCHUP (5-10 sec) — set it up: "[Character A] vs [Character B]"
+3. THE ARGUMENT (15-35 sec) — 2-3 reasons why your pick wins
+4. CLOSING (40-50 sec) — concede one weakness for credibility, then ask "Who wins?"
+
+LENGTH: 85-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_lore_drop(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a lore-deep-dive Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal ONE piece of lore, theory, or hidden detail that casual viewers usually miss. Could be foreshadowing, a name meaning, a Japanese cultural reference, a hidden manga panel detail, or a fan theory with real evidence.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "Most fans missed this detail in [anime]."
+2. SETUP (5-10 sec) — what you're about to reveal
+3. THE REVEAL (15-35 sec) — the detail itself + the evidence
+4. CLOSING (40-50 sec) — what it means for the story + ask if viewers caught it
+
+LENGTH: 85-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_manga_vs_anime(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "manga vs anime" comparison Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal 2-3 things the anime CHANGED or CUT from the manga. Be specific where possible. Take a clear stance on whether the anime did it better or the manga.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "The anime butchered this manga scene."
+2. CHANGE #1 (10 sec) — what was changed
+3. CHANGE #2 (10 sec) — what was changed
+4. (optional) CHANGE #3 (10 sec)
+5. CLOSING (5-10 sec) — your verdict + ask viewers which version they prefer
+
+LENGTH: 85-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_why_trending(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "why everyone is watching this" Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently the most-watched anime — viral right now):
+{anime_title}
+Quick context: {synopsis}
+
+Explain in fan-friendly terms why this anime is blowing up RIGHT NOW. Animation quality? Story twist? Character moment? Viral scene? Pick 2-3 concrete reasons.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "If you're not watching [anime] yet, fix that."
+2. THE PITCH (5-15 sec) — quick what-it's-about for newcomers
+3. WHY IT'S HOT (15-40 sec) — 2-3 specific reasons it's trending
+4. CLOSING (40-50 sec) — where to start watching + ask if viewers are caught up
+
+LENGTH: 85-120 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+PROMPT_DISPATCH = {
+    'news_commentary':     _prompt_news_commentary,
+    'character_spotlight': _prompt_character_spotlight,
+    'top_moments':         _prompt_top_moments,
+    'power_scaling':       _prompt_power_scaling,
+    'lore_drop':           _prompt_lore_drop,
+    'manga_vs_anime':      _prompt_manga_vs_anime,
+    'why_trending':        _prompt_why_trending,
+}
+
+
+# ---------------------------------------------------------------------------
+# Public
+# ---------------------------------------------------------------------------
+
+def generate_script_and_metadata(topic):
+    """
+    Args:
+        topic = {'anime': {...mal entry...}, 'news': {...}|None, 'content_type': str}
+    """
+    client = Groq(api_key=os.environ['GROQ_API_KEY'])
+
+    anime       = topic['anime']
+    news        = topic.get('news')
+    content_type = topic.get('content_type', 'why_trending')
+
+    anime_title = anime.get('title_english') or anime.get('title') or 'Anime'
+    synopsis    = (anime.get('synopsis') or '')[:600]
+
+    builder = PROMPT_DISPATCH.get(content_type, _prompt_why_trending)
+
+    if content_type == 'news_commentary':
+        prompt = builder(anime_title, synopsis, news)
+    else:
+        prompt = builder(anime_title, synopsis)
+
+    print(f"[script_generator] Content type: {content_type}")
+    print(f"[script_generator] Anime: {anime_title}")
 
     response = client.chat.completions.create(
         model='llama-3.3-70b-versatile',
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=0.9,   # Slightly higher for more varied phrasing
-        max_tokens=1500,
+        temperature=0.9,
+        max_tokens=1600,
     )
 
     raw = response.choices[0].message.content
@@ -101,8 +270,7 @@ SEARCH_TAGS: [8 hashtags starting with #]
     tags_raw       = extract('TAGS')
     tags           = [t.strip() for t in tags_raw.split(',') if t.strip()]
     thumbnail_text = extract('THUMBNAIL_TEXT')
-    banner_tag     = extract('BANNER_TAG') or 'BREAKING'
-    focus_anime    = extract('FOCUS_ANIME')
+    banner_tag     = extract('BANNER_TAG') or ('BREAKING' if content_type == 'news_commentary' else 'TRENDING')
     focus_chars_raw = extract('FOCUS_CHARACTERS')
     focus_characters = [c.strip() for c in focus_chars_raw.split(',') if c.strip()]
     search_tags    = extract('SEARCH_TAGS')
@@ -115,9 +283,8 @@ SEARCH_TAGS: [8 hashtags starting with #]
     print(f"[script_generator] Script: {len(script.split())} words")
     print(f"[script_generator] Title: {title}")
     print(f"[script_generator] Banner: {banner_tag}")
-    print(f"[script_generator] Focus anime: {focus_anime}")
     if focus_characters:
-        print(f"[script_generator] Focus characters: {', '.join(focus_characters)}")
+        print(f"[script_generator] Characters: {', '.join(focus_characters)}")
 
     return {
         'script':           script,
@@ -126,6 +293,7 @@ SEARCH_TAGS: [8 hashtags starting with #]
         'tags':             tags,
         'thumbnail_text':   thumbnail_text,
         'banner_tag':       banner_tag.upper().strip(),
-        'focus_anime':      focus_anime,
+        'focus_anime':      anime_title,
         'focus_characters': focus_characters,
+        'content_type':     content_type,
     }

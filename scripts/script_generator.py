@@ -1,14 +1,33 @@
 """
 script_generator.py
 Director-style anime news Shorts script for Fantasy Verse.
-Output is a tight 30-60 sec script structured into HOOK / CONTEXT / REVEAL / PAYOFF
-beats so the video assembler can map each section to a visual shot.
+The prompt is heavily tuned to make Groq's output sound like a real
+human creator, not an AI narrator — short sentences, contractions,
+casual filler, no marketing buzzwords.
 """
 
 import os
 import re
 from groq import Groq
 from datetime import datetime
+
+
+HUMAN_VOICE_RULES = """
+WRITING STYLE — sound like a real person, NOT an AI:
+- Use contractions everywhere: don't, can't, it's, they're, you'd, gonna, kinda
+- Short, punchy sentences. Most under 12 words. Mix sentence lengths.
+- Drop natural filler occasionally: "okay so", "look", "honestly", "like", "basically", "wait"
+- Strategic ellipses ("...") create natural pauses — use them at tension moments
+- Sound like you're texting a friend who's also an anime fan, not reading a press release
+- Personal hooks like: "I just saw this and...", "Bro, you're not ready", "Wait till you hear what they did"
+- NEVER say robotic phrases: "It has been announced", "We are excited to share", "In other news"
+- Replace marketing-speak with casual variants:
+    "smash subscribe" → "hit follow" / "tap that subscribe" / "don't sleep on the channel"
+    "amazing news" → "this is wild" / "this is actually insane"
+    "stay tuned" → "I'll keep you posted" / "more on this soon"
+- React like a fan, not a reporter: "yo", "no way", "I'm dead", "this hits different"
+- Use specific numbers/dates if available — vague AI-sounding statements feel fake
+""".strip()
 
 
 def generate_script_and_metadata(news_items):
@@ -21,51 +40,47 @@ def generate_script_and_metadata(news_items):
 
     today = datetime.now().strftime('%B %d, %Y')
 
-    prompt = f"""You are a viral YouTube Shorts director writing for an anime news channel called Fantasy Verse.
+    prompt = f"""You are a 23-year-old anime YouTuber writing your daily Shorts script for the channel "Fantasy Verse". You're a real fan first — you actually watch this stuff.
 
-Today is {today}. Pick the SINGLE most exciting story from this news feed and write a high-energy 30-60 second Short script:
+Today is {today}. Pick the SINGLE most exciting story from this feed and write a 30-50 second narration:
 
 {news_block}
 
-SCRIPT STRUCTURE (write as flowing narration, no labels in output):
+{HUMAN_VOICE_RULES}
 
-[HOOK - first 6 words, 0-3 sec]
-A punchy 5-8 word opening line that creates shock or curiosity. Examples:
-- "This changes EVERYTHING for One Piece."
-- "Fans are losing it right now."
-- "No one saw this coming."
+STRUCTURE (write as flowing narration, no labels):
 
-[CONTEXT - 3-10 sec]
-One sentence stating what the news is.
+[HOOK — 5-8 words, first 2-3 sec]
+Punch them in the face with a hot take or shocking claim. Examples:
+- "Okay this Chainsaw Man leak is insane."
+- "I literally cannot believe this just happened."
+- "Bro, One Piece fans are not okay right now."
 
-[REVEAL - 10-40 sec]
-2-3 micro-beats, each 1-2 short sentences. Build excitement. Use fan reactions.
+[THE NEWS — 5-15 sec]
+What happened, in one or two short sentences. Be specific.
 
-[PAYOFF + CTA - 40-55 sec]
-Deliver the "so what" — why this matters. End with a question to drive comments:
-"Is this a W or L?" / "Who's hyped?" / "What do you think?"
-Then close with: "Smash subscribe to Fantasy Verse for daily anime news!"
+[REACTION + DETAILS — 15-40 sec]
+2-3 micro-beats with your actual reaction. Reference fans on Twitter, throw in your take, build the hype or dread. Mark rumors clearly with "rumored", "supposedly", "not confirmed yet".
 
-CRITICAL RULES:
-- Total length: 80-130 words (reads in 30-55 seconds at ~170 wpm pace)
-- High energy, fast-paced — every sentence punches
-- NO section headers, NO stage directions, NO sound effect labels — pure spoken narration
-- Use power words: HUGE, SHOCKING, INSANE, MASSIVE, BROKEN
-- Mark rumors clearly with "rumored" or "unconfirmed"
+[CLOSING — 40-50 sec]
+Drop the "so what" in one line. Ask a real question that invites debate.
+Close with a casual subscribe ask — never use the words "smash" or "amazing".
+
+LENGTH: 75-115 words. That's it. Tight. No fluff. Every sentence earns its place.
 
 After the script, output EXACTLY this block:
-TITLE: [YouTube title, max 70 chars, MUST include #Shorts, year 2026, power word like SHOCKING or HUGE]
-DESCRIPTION: [80-120 word description, include keywords naturally, end with subscribe CTA]
-TAGS: [15 comma-separated tags — mix broad (anime, manga, otaku) and specific (the anime name, characters)]
-THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "ONE PIECE LEAK", "HUGE REVEAL"]
-BANNER_TAG: [Pick ONE word: BREAKING or LEAKED or HUGE or RUMOR — this becomes the red banner]
-SEARCH_TAGS: [8 hashtags starting with # for end of description]
+TITLE: [under 70 chars, MUST include #Shorts, include the anime name, no clickbait emojis]
+DESCRIPTION: [80-120 words, casual tone matching the script, end with a casual follow CTA]
+TAGS: [15 comma-separated tags — mix broad (anime, manga, otaku, anime news 2026) and specific anime/character names]
+THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER", "OP IS COOKED"]
+BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR — for the on-screen red banner]
+SEARCH_TAGS: [8 hashtags starting with #]
 """
 
     response = client.chat.completions.create(
         model='llama-3.3-70b-versatile',
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=0.85,
+        temperature=0.9,   # Slightly higher for more varied phrasing
         max_tokens=1500,
     )
 

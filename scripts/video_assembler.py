@@ -15,6 +15,8 @@ Production elements:
 
 import os
 import math
+import random
+from datetime import datetime
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
@@ -29,8 +31,12 @@ from moviepy.editor import (
 WIDTH, HEIGHT = 1080, 1920
 FPS = 30
 
-# Pacing: faster cuts later in the video for retention
-SHOT_DURATIONS = [3.2, 2.5, 2.2, 2.0, 1.9, 1.8, 1.7, 1.6, 1.7, 1.8, 2.0, 2.2]
+# Pacing: faster cuts later in the video for retention.
+# Slightly randomised per-day so the rhythm doesn't feel mechanical.
+def _shot_durations():
+    rng = random.Random(datetime.now().strftime('%Y%m%d'))
+    base = [3.2, 2.5, 2.2, 2.0, 1.9, 1.8, 1.7, 1.6, 1.7, 1.8, 2.0, 2.2]
+    return [round(d + rng.uniform(-0.25, 0.25), 2) for d in base]
 
 BRAND_PURPLE = (138, 43, 226)
 BANNER_RED   = (220, 30, 30)
@@ -234,10 +240,11 @@ def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
     current_t = 0.0
     img_idx = 0
     shot_idx = 0
+    shot_durations = _shot_durations()
 
     while current_t < content_dur:
         remaining = content_dur - current_t
-        target = SHOT_DURATIONS[shot_idx % len(SHOT_DURATIONS)]
+        target = shot_durations[shot_idx % len(shot_durations)]
         clip_dur = min(target, remaining)
         if clip_dur < 0.4:
             break
@@ -265,15 +272,28 @@ def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
     full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.2)
     full = full.set_audio(audio)
 
+    # High-quality encode:
+    #   preset=slow → better compression efficiency at given bitrate
+    #   CRF 19    → visually near-lossless for YouTube
+    #   pix_fmt yuv420p → universal mobile/web compatibility
+    #   tune film → preserves detail in high-motion anime art
     full.write_videofile(
         output_path,
         fps=FPS,
         codec='libx264',
         audio_codec='aac',
-        preset='medium',
-        bitrate='5000k',
+        audio_bitrate='192k',
+        preset='slow',
         threads=2,
         logger=None,
+        ffmpeg_params=[
+            '-crf', '19',
+            '-pix_fmt', 'yuv420p',
+            '-tune', 'film',
+            '-movflags', '+faststart',
+            '-profile:v', 'high',
+            '-level', '4.2',
+        ],
     )
 
     print(f"[video_assembler] Done: {output_path}")

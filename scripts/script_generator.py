@@ -61,7 +61,7 @@ STRUCTURE:
 3. REACTION + DETAILS (15-40 sec) — your take, fan reactions, what it means
 4. CLOSING (40-50 sec) — the "so what" + a real question to drive comments
 
-LENGTH: 75-115 words.
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -84,7 +84,7 @@ STRUCTURE:
 3. WHY THEY'RE ELITE (15-40 sec) — 2-3 specific reasons with examples
 4. CLOSING (40-50 sec) — your hot take + ask viewers for their pick
 
-LENGTH: 80-120 words.
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -108,7 +108,7 @@ STRUCTURE:
 4. NUMBER 1 (12 sec) — bigger build, the moment, why it's #1
 5. CLOSING (5 sec) — ask viewers what they'd put at #1
 
-LENGTH: 90-120 words.
+LENGTH: 130-170 words (this gives ~55-70 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -131,7 +131,7 @@ STRUCTURE:
 3. THE ARGUMENT (15-35 sec) — 2-3 reasons why your pick wins
 4. CLOSING (40-50 sec) — concede one weakness for credibility, then ask "Who wins?"
 
-LENGTH: 85-120 words.
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -154,7 +154,7 @@ STRUCTURE:
 3. THE REVEAL (15-35 sec) — the detail itself + the evidence
 4. CLOSING (40-50 sec) — what it means for the story + ask if viewers caught it
 
-LENGTH: 85-120 words.
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -178,7 +178,7 @@ STRUCTURE:
 4. (optional) CHANGE #3 (10 sec)
 5. CLOSING (5-10 sec) — your verdict + ask viewers which version they prefer
 
-LENGTH: 85-120 words.
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -201,7 +201,7 @@ STRUCTURE:
 3. WHY IT'S HOT (15-40 sec) — 2-3 specific reasons it's trending
 4. CLOSING (40-50 sec) — where to start watching + ask if viewers are caught up
 
-LENGTH: 85-120 words.
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 

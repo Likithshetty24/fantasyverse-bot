@@ -16,14 +16,16 @@ from moviepy.editor import AudioFileClip
 # Each profile combines an accent (gTTS tld), a tempo multiplier (~175 wpm
 # target) and a pitch shift via ffmpeg asetrate trick. The mix of all three
 # gives 7 distinct-sounding "hosts" that rotate day to day.
+# Tempos lowered from ~1.32 to ~1.22 so videos are longer (~50-65 sec)
+# and the voice sounds less rushed / more natural.
 VOICE_PROFILES = [
-    {'name': 'US Hype Bro',     'tld': 'com',    'tempo': 1.34, 'pitch': 1.00},
-    {'name': 'UK Calm Host',    'tld': 'co.uk',  'tempo': 1.28, 'pitch': 0.96},
-    {'name': 'AU Energetic',    'tld': 'com.au', 'tempo': 1.38, 'pitch': 1.03},
-    {'name': 'India Smooth',    'tld': 'co.in',  'tempo': 1.30, 'pitch': 0.98},
-    {'name': 'Canada Chill',    'tld': 'ca',     'tempo': 1.32, 'pitch': 1.01},
-    {'name': 'Ireland Punchy',  'tld': 'ie',     'tempo': 1.36, 'pitch': 1.02},
-    {'name': 'ZA Deep',         'tld': 'co.za',  'tempo': 1.30, 'pitch': 0.94},
+    {'name': 'US Hype Bro',     'tld': 'com',    'tempo': 1.24, 'pitch': 1.00},
+    {'name': 'UK Calm Host',    'tld': 'co.uk',  'tempo': 1.18, 'pitch': 0.96},
+    {'name': 'AU Energetic',    'tld': 'com.au', 'tempo': 1.28, 'pitch': 1.03},
+    {'name': 'India Smooth',    'tld': 'co.in',  'tempo': 1.20, 'pitch': 0.98},
+    {'name': 'Canada Chill',    'tld': 'ca',     'tempo': 1.22, 'pitch': 1.01},
+    {'name': 'Ireland Punchy',  'tld': 'ie',     'tempo': 1.26, 'pitch': 1.02},
+    {'name': 'ZA Deep',         'tld': 'co.za',  'tempo': 1.20, 'pitch': 0.94},
 ]
 
 SAMPLE_RATE = 24000  # gTTS native rate

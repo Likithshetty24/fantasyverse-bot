@@ -30,14 +30,89 @@ WRITING STYLE — sound like a real person, NOT an AI:
 
 META_BLOCK_INSTRUCTIONS = """
 After the script, output EXACTLY this block:
-TITLE: [under 70 chars, MUST include #Shorts and the anime name, no clickbait emojis]
+
+TITLE: Follow these RULES EXACTLY:
+  - 45-65 characters total (counting "#Shorts" at the end)
+  - Format: [ANIME NAME] [hook claim or reaction] #Shorts
+  - Anime name MUST appear in the first 30 characters
+  - MUST include exactly one power word: HUGE, MASSIVE, SHOCKING, INSANE, BROKEN, COOKED, CRAZY, WILD, NUTS
+  - "#Shorts" goes ONLY at the end, never at the start, exactly once
+  - NO emojis, NO multiple consecutive caps words, NO clickbait punctuation spam
+  GOOD examples (copy this style):
+    ✓ "Jujutsu Kaisen just dropped a MASSIVE Season 3 update #Shorts"
+    ✓ "Solo Leveling fans are losing it over this leak #Shorts"
+    ✓ "My Hero Academia's ending is BROKEN — here's why #Shorts"
+    ✓ "Demon Slayer Season 5 announcement is INSANE #Shorts"
+  BAD examples (NEVER do this):
+    ✗ "JJK #Shorts"                          (no hook, too short)
+    ✗ "#Shorts Anime News Today"             (Shorts at start, no anime)
+    ✗ "Witch Hat 🔥🔥 #Shorts"               (emojis)
+    ✗ "BREAKING HUGE MASSIVE NEWS!!! #Shorts" (clickbait spam)
+
 DESCRIPTION: [80-120 words, casual tone matching the script, end with casual follow CTA]
 TAGS: [15 comma-separated tags, mix broad (anime, manga, otaku, anime 2026) and specific anime/character names]
-THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER"]
+THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER", "MHA COOKED"]
 BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR or TRENDING]
 FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the script. Empty if none.]
 SEARCH_TAGS: [8 hashtags starting with #]
 """.strip()
+
+
+# Emoji + clickbait spam stripper
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport
+    "\U0001F700-\U0001F77F"  # alchemical
+    "\U0001F900-\U0001F9FF"  # supplemental
+    "\U0001FA00-\U0001FA6F"  # extended-A
+    "\U0001FA70-\U0001FAFF"  # extended-B
+    "\U00002600-\U000026FF"  # misc symbols
+    "\U00002700-\U000027BF"  # dingbats
+    "]+",
+    flags=re.UNICODE,
+)
+
+POWER_WORDS = ['HUGE', 'MASSIVE', 'SHOCKING', 'INSANE', 'BROKEN',
+               'COOKED', 'CRAZY', 'WILD', 'NUTS']
+
+
+def _polish_title(raw_title, anime_name):
+    """Clean up Groq's title and enforce our rules. Returns final title."""
+    t = raw_title.strip()
+
+    # 1. Strip any quotation marks
+    t = t.strip('"\'')
+
+    # 2. Strip emojis
+    t = _EMOJI_RE.sub('', t)
+
+    # 3. Strip all #Shorts mentions (we re-add one at end)
+    t = re.sub(r'#\s*[Ss]horts?', '', t)
+
+    # 4. Collapse repeated punctuation/whitespace
+    t = re.sub(r'!{2,}', '!', t)
+    t = re.sub(r'\?{2,}', '?', t)
+    t = re.sub(r'\s+', ' ', t).strip(' -–—:|')
+
+    # 5. If anime name isn't in title, prepend it
+    if anime_name and anime_name.lower() not in t.lower():
+        t = f"{anime_name} {t}"
+
+    # 6. Truncate body so " #Shorts" fits within 65 chars
+    suffix = " #Shorts"
+    max_body = 65 - len(suffix)
+    if len(t) > max_body:
+        t = t[:max_body].rstrip(' .,;:!-–—')
+
+    # 7. If we still have no power word, log warning (don't force-insert
+    #    -- would read awkwardly; better to let Groq's title pass through)
+    has_power = any(w in t.upper() for w in POWER_WORDS)
+    if not has_power:
+        print(f"[script_generator] WARNING: title missing power word: {t!r}")
+
+    return f"{t}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -275,8 +350,9 @@ def generate_script_and_metadata(topic):
     focus_characters = [c.strip() for c in focus_chars_raw.split(',') if c.strip()]
     search_tags    = extract('SEARCH_TAGS')
 
-    if '#Shorts' not in title and '#shorts' not in title:
-        title = title[:60] + ' #Shorts'
+    # Strict title polish: strip emojis/junk, ensure anime name first,
+    # truncate to 65 chars + " #Shorts" at end exactly once.
+    title = _polish_title(title, anime_title)
 
     full_description = f"{description}\n\n{search_tags}"
 

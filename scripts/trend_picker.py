@@ -3,16 +3,16 @@ trend_picker.py
 Picks today's video topic by combining "what's trending right now"
 with "is there fresh news about it".
 
-Strategy:
-  1. Pull top ~25 currently-airing anime from Jikan (this season + cross-season)
-     sorted by member count → these are the truly trending shows
-  2. Pull recent ANN news headlines
-  3. Cross-reference: if any of today's news matches a trending anime, use that
-     pairing — best content (rides trend + has news hook)
-  4. Otherwise pick the top trending anime and rotate through evergreen
-     content formats (character spotlight, top moments, power scaling, etc.)
+News sources (all free, no keys):
+  - Anime News Network RSS  (slow but authoritative)
+  - Crunchyroll News RSS    (industry-direct, often faster than ANN)
+  - Reddit r/anime hot      (community-curated, fastest signal)
 
-Output is a single 'topic' dict that downstream modules consume.
+Strategy:
+  1. Pull top ~25 currently-airing anime from Jikan
+  2. Pull pooled news from 3 sources
+  3. Cross-reference: trending anime with fresh news = best content
+  4. Otherwise rotate through top 7 trending anime + content type rotation
 """
 
 import re
@@ -22,12 +22,20 @@ import feedparser
 from html import unescape
 from datetime import datetime
 
-JIKAN_SEASON_NOW  = "https://api.jikan.moe/v4/seasons/now"
-JIKAN_TOP_AIRING  = "https://api.jikan.moe/v4/top/anime"
-ANN_RSS           = "https://www.animenewsnetwork.com/news/rss.xml"
-JIKAN_DELAY       = 0.4
+# ---- API / feed endpoints -----------------------------------------------
+JIKAN_SEASON_NOW = "https://api.jikan.moe/v4/seasons/now"
+JIKAN_TOP_AIRING = "https://api.jikan.moe/v4/top/anime"
+ANN_RSS          = "https://www.animenewsnetwork.com/news/rss.xml"
+CRUNCHY_RSS      = "https://www.crunchyroll.com/news/rss/anime"
+REDDIT_HOT       = "https://www.reddit.com/r/anime/hot.json"
 
-EXCLUDE_NEWS_KEYWORDS = ['review', 'encyclopedia', 'preview guide', 'this week in anime', 'shelf life']
+JIKAN_DELAY      = 0.4
+USER_AGENT       = "FantasyVerseBot/1.0 (anime news aggregator)"
+
+EXCLUDE_NEWS_KEYWORDS = [
+    'review', 'encyclopedia', 'preview guide',
+    'this week in anime', 'shelf life', 'daily streaming reviews',
+]
 
 # Evergreen content formats — rotated when no trending anime has news today
 CONTENT_TYPES = [
@@ -41,15 +49,13 @@ CONTENT_TYPES = [
 
 
 # ---------------------------------------------------------------------------
-# Trending anime fetch
+# Trending anime fetch (Jikan)
 # ---------------------------------------------------------------------------
 
 def _fetch_seasonal_top():
-    """This season's anime sorted by popularity (member count)."""
     try:
         r = requests.get(JIKAN_SEASON_NOW,
-                         params={'limit': 25, 'sfw': 'true'},
-                         timeout=15)
+                         params={'limit': 25, 'sfw': 'true'}, timeout=15)
         r.raise_for_status()
         items = r.json().get('data', [])
         items.sort(key=lambda x: x.get('members', 0), reverse=True)
@@ -60,11 +66,9 @@ def _fetch_seasonal_top():
 
 
 def _fetch_top_airing():
-    """All currently-airing anime including long-runners (One Piece etc)."""
     try:
         r = requests.get(JIKAN_TOP_AIRING,
-                         params={'filter': 'airing', 'limit': 15},
-                         timeout=15)
+                         params={'filter': 'airing', 'limit': 15}, timeout=15)
         r.raise_for_status()
         return r.json().get('data', [])
     except Exception as e:
@@ -73,9 +77,7 @@ def _fetch_top_airing():
 
 
 def _merge_trending(seasonal, airing):
-    """Dedupe by mal_id, prefer seasonal entries (fresher metadata)."""
-    seen = set()
-    merged = []
+    seen, merged = set(), []
     for item in seasonal + airing:
         mid = item.get('mal_id')
         if not mid or mid in seen:
@@ -86,7 +88,7 @@ def _merge_trending(seasonal, airing):
 
 
 # ---------------------------------------------------------------------------
-# News fetch (now secondary — used only to detect hot topics)
+# News fetchers (3 sources)
 # ---------------------------------------------------------------------------
 
 def _clean_text(html):
@@ -94,34 +96,108 @@ def _clean_text(html):
     return re.sub(r'\s+', ' ', unescape(text)).strip()
 
 
-def _fetch_recent_news(max_items=20):
+def _is_news_worthy(title):
+    tl = title.lower()
+    return not any(kw in tl for kw in EXCLUDE_NEWS_KEYWORDS)
+
+
+def _fetch_ann(limit=20):
     try:
         feed = feedparser.parse(ANN_RSS)
         items = []
-        for entry in feed.entries[:max_items]:
+        for entry in feed.entries[:limit]:
             title = entry.get('title', '').strip()
-            if not title:
-                continue
-            tl = title.lower()
-            if any(kw in tl for kw in EXCLUDE_NEWS_KEYWORDS):
+            if not title or not _is_news_worthy(title):
                 continue
             items.append({
                 'title':   title,
                 'summary': _clean_text(entry.get('summary', ''))[:280],
                 'link':    entry.get('link', ''),
+                'source':  'ann',
             })
         return items
     except Exception as e:
-        print(f"[trend_picker] News fetch failed: {e}")
+        print(f"[trend_picker] ANN fetch failed: {e}")
         return []
 
 
+def _fetch_crunchyroll(limit=20):
+    try:
+        feed = feedparser.parse(CRUNCHY_RSS)
+        items = []
+        for entry in feed.entries[:limit]:
+            title = entry.get('title', '').strip()
+            if not title or not _is_news_worthy(title):
+                continue
+            items.append({
+                'title':   title,
+                'summary': _clean_text(entry.get('summary', ''))[:280],
+                'link':    entry.get('link', ''),
+                'source':  'crunchyroll',
+            })
+        return items
+    except Exception as e:
+        print(f"[trend_picker] Crunchyroll fetch failed: {e}")
+        return []
+
+
+def _fetch_reddit(limit=25):
+    try:
+        r = requests.get(
+            REDDIT_HOT,
+            params={'limit': limit, 't': 'day'},
+            headers={'User-Agent': USER_AGENT},
+            timeout=15,
+        )
+        r.raise_for_status()
+        items = []
+        for child in r.json().get('data', {}).get('children', []):
+            d = child.get('data', {}) or {}
+            flair = (d.get('link_flair_text') or '').lower()
+            # Keep only news / announcement / clip posts (community curates well)
+            if not any(kw in flair for kw in ['news', 'announce', 'official', 'video']):
+                continue
+            title = d.get('title', '').strip()
+            if not title or not _is_news_worthy(title):
+                continue
+            items.append({
+                'title':   title,
+                'summary': (d.get('selftext') or '')[:280],
+                'link':    'https://reddit.com' + d.get('permalink', ''),
+                'source':  'reddit',
+            })
+        return items
+    except Exception as e:
+        print(f"[trend_picker] Reddit fetch failed: {e}")
+        return []
+
+
+def _fetch_recent_news(max_items=40):
+    """Pool news from all 3 sources, dedupe loosely by title prefix."""
+    ann_items = _fetch_ann(limit=20)
+    cr_items  = _fetch_crunchyroll(limit=15)
+    rd_items  = _fetch_reddit(limit=25)
+    print(f"[trend_picker] News sources: "
+          f"ANN={len(ann_items)} Crunchyroll={len(cr_items)} Reddit={len(rd_items)}")
+
+    pool = ann_items + cr_items + rd_items
+    # Dedupe by first 35 chars of lowercase title
+    seen, unique = set(), []
+    for item in pool:
+        key = re.sub(r'\W+', '', item['title'].lower())[:35]
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    print(f"[trend_picker] Unique news items: {len(unique)}")
+    return unique[:max_items]
+
+
 # ---------------------------------------------------------------------------
-# Cross-reference: does any trending anime appear in any recent headline?
+# Cross-reference: trending anime ↔ recent headline
 # ---------------------------------------------------------------------------
 
 def _alt_titles(anime):
-    """Collect all known titles for an anime so we can match loosely."""
     titles = []
     for key in ('title', 'title_english', 'title_japanese'):
         t = anime.get(key)
@@ -136,11 +212,9 @@ def _alt_titles(anime):
 def _find_news_match(trending, news_items):
     """Return (anime, news_item) if any trending anime appears in any headline."""
     for anime in trending:
-        candidates = _alt_titles(anime)
-        for cand in candidates:
+        for cand in _alt_titles(anime):
             cand_lower = cand.lower()
-            # Skip very short/ambiguous titles ("K", "Lupin") to avoid false positives
-            if len(cand_lower) < 5:
+            if len(cand_lower) < 5:  # avoid false positives on tiny titles
                 continue
             for item in news_items:
                 text = (item['title'] + ' ' + item['summary']).lower()
@@ -154,8 +228,7 @@ def _find_news_match(trending, news_items):
 # ---------------------------------------------------------------------------
 
 def pick_topic():
-    """Pick today's anime focus + content format."""
-    print("[trend_picker] Fetching trending anime...")
+    print("[trend_picker] Fetching trending anime from Jikan...")
     seasonal = _fetch_seasonal_top()
     time.sleep(JIKAN_DELAY)
     airing = _fetch_top_airing()
@@ -164,34 +237,39 @@ def pick_topic():
     if not trending:
         raise RuntimeError("No trending anime found — Jikan may be down")
 
-    print(f"[trend_picker] Top 5 trending right now:")
-    for i, a in enumerate(trending[:5], 1):
+    print(f"[trend_picker] Top 7 trending right now:")
+    for i, a in enumerate(trending[:7], 1):
         title = a.get('title')
         members = a.get('members', 0)
         score = a.get('score', 0)
         print(f"  {i}. {title}  (members: {members:,}  score: {score})")
 
-    # Try to find a news hook
+    # Pool news from ANN + Crunchyroll + Reddit
     news_items = _fetch_recent_news()
     matched_anime, matched_news = _find_news_match(trending, news_items)
 
     if matched_anime:
-        print(f"[trend_picker] News match! Anime: {matched_anime.get('title')}")
-        print(f"[trend_picker]   News: {matched_news['title']}")
+        print(f"[trend_picker] News match (source: {matched_news['source']})")
+        print(f"[trend_picker]   Anime: {matched_anime.get('title')}")
+        print(f"[trend_picker]   News:  {matched_news['title']}")
         return {
             'anime':        matched_anime,
             'news':         matched_news,
             'content_type': 'news_commentary',
         }
 
-    # No news hit — pick #1 trending and rotate content type
-    top_pick = trending[0]
+    # No news hit — ROTATE through top 7 by day-of-year so we don't post the
+    # same anime multiple days in a row. Fixes "Witch Hat 4 days in a row"
+    # problem and gives YouTube a clear "general anime news channel" identity.
     day = datetime.now().timetuple().tm_yday
+    rotation_pool = trending[:7] if len(trending) >= 7 else trending
+    slot = day % len(rotation_pool)
+    top_pick = rotation_pool[slot]
     content_type = CONTENT_TYPES[day % len(CONTENT_TYPES)]
 
-    print(f"[trend_picker] No news hook — using #1 trending anime")
-    print(f"[trend_picker] Anime: {top_pick.get('title')}")
-    print(f"[trend_picker] Content type: {content_type}")
+    print(f"[trend_picker] No news hook — rotating top {len(rotation_pool)}")
+    print(f"[trend_picker]   Today's slot: #{slot + 1} -> {top_pick.get('title')}")
+    print(f"[trend_picker]   Content type: {content_type}")
 
     return {
         'anime':        top_pick,

@@ -1,11 +1,8 @@
 """
 tts_generator.py
-Hindi voiceover for Daulat Mantra.
-gTTS only has one Hindi voice, so we create variation through tempo
-and pitch ffmpeg tweaks — gives the channel 4 distinct-feeling "hosts"
-that rotate through the week.
-
-Plus a podcast-mic EQ chain so it doesn't sound like raw TTS.
+English voiceover with daily voice rotation across 7 accents.
+Each profile has its own tld + tempo + pitch so the channel doesn't
+sound like the same speaker every day.
 """
 
 import os
@@ -16,50 +13,55 @@ from gtts import gTTS
 from moviepy.editor import AudioFileClip
 
 
-# Tempo around 1.05-1.15 keeps Hindi intelligible (Hindi has more
-# syllables per word than English, so we can't push as fast).
-# Pitch variation gives the impression of different speakers.
+# Each profile combines an accent (gTTS tld), a tempo multiplier (~175 wpm
+# target) and a pitch shift via ffmpeg asetrate trick. The mix of all three
+# gives 7 distinct-sounding "hosts" that rotate day to day.
+# Tempos lowered from ~1.32 to ~1.22 so videos are longer (~50-65 sec)
+# and the voice sounds less rushed / more natural.
 VOICE_PROFILES = [
-    {'name': 'गुरु शैली (calm guru)',     'tempo': 1.05, 'pitch': 0.94},
-    {'name': 'भाई शैली (older brother)',  'tempo': 1.12, 'pitch': 0.98},
-    {'name': 'दोस्त शैली (close friend)', 'tempo': 1.15, 'pitch': 1.02},
-    {'name': 'गहन शैली (deep sage)',     'tempo': 1.02, 'pitch': 0.90},
+    {'name': 'US Hype Bro',     'tld': 'com',    'tempo': 1.24, 'pitch': 1.00},
+    {'name': 'UK Calm Host',    'tld': 'co.uk',  'tempo': 1.18, 'pitch': 0.96},
+    {'name': 'AU Energetic',    'tld': 'com.au', 'tempo': 1.28, 'pitch': 1.03},
+    {'name': 'India Smooth',    'tld': 'co.in',  'tempo': 1.20, 'pitch': 0.98},
+    {'name': 'Canada Chill',    'tld': 'ca',     'tempo': 1.22, 'pitch': 1.01},
+    {'name': 'Ireland Punchy',  'tld': 'ie',     'tempo': 1.26, 'pitch': 1.02},
+    {'name': 'ZA Deep',         'tld': 'co.za',  'tempo': 1.20, 'pitch': 0.94},
 ]
 
-SAMPLE_RATE = 24000
+SAMPLE_RATE = 24000  # gTTS native rate
 
 
 def _pick_voice():
-    """Deterministic daily rotation."""
+    """Deterministic daily rotation so consecutive days vary."""
     day = datetime.now().timetuple().tm_yday
     base = VOICE_PROFILES[day % len(VOICE_PROFILES)]
 
-    # Tiny daily randomness so even repeat profiles sound fresh
+    # Add tiny daily randomness so even same profile sounds fresh
     rng = random.Random(datetime.now().strftime('%Y%m%d'))
     profile = dict(base)
-    profile['tempo'] += rng.uniform(-0.02, 0.02)
-    profile['pitch'] += rng.uniform(-0.01, 0.01)
+    profile['tempo'] += rng.uniform(-0.03, 0.03)
+    profile['pitch'] += rng.uniform(-0.015, 0.015)
     return profile
 
 
 def generate_voiceover(text, audio_path):
+    """Render speech with the day's voice profile. Returns audio duration (s)."""
     profile = _pick_voice()
-    print(f"[tts_generator] Voice: {profile['name']}  "
-          f"tempo={profile['tempo']:.2f}  pitch={profile['pitch']:.2f}")
+    print(f"[tts_generator] Voice: {profile['name']}  tempo={profile['tempo']:.2f}  pitch={profile['pitch']:.2f}")
 
     raw_path = audio_path.replace('.mp3', '_raw.mp3')
-    tts = gTTS(text=text, lang='hi', tld='co.in', slow=False)
+    tts = gTTS(text=text, lang='en', tld=profile['tld'], slow=False)
     tts.save(raw_path)
 
-    # Pitch shift via asetrate + resample, then atempo for speed control,
-    # plus podcast-style EQ + compression + loudnorm for warmth.
+    # Pitch shift via asetrate trick + resample back, then atempo for speed,
+    # then a mild EQ/limiter chain so the result sounds like a podcast mic.
     new_rate = int(SAMPLE_RATE * profile['pitch'])
     filter_chain = (
         f"asetrate={new_rate},"
         f"aresample={SAMPLE_RATE},"
         f"atempo={profile['tempo']:.3f},"
-        f"highpass=f=80,"
-        f"lowpass=f=10500,"
+        f"highpass=f=85,"
+        f"lowpass=f=11000,"
         f"acompressor=threshold=-18dB:ratio=3:attack=20:release=200,"
         f"loudnorm=I=-16:TP=-1.5:LRA=11"
     )

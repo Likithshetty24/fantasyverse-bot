@@ -1,6 +1,6 @@
 """
 main.py
-Daulat Mantra — daily Hindi mindset/money Shorts orchestrator.
+Orchestrator for Fantasy Verse — trend-aware daily anime Shorts.
 """
 
 import os
@@ -9,7 +9,7 @@ import shutil
 import traceback
 from datetime import datetime
 
-from topic_picker        import pick_topic
+from trend_picker        import pick_topic
 from script_generator    import generate_script_and_metadata
 from tts_generator       import generate_voiceover
 from footage_fetcher     import fetch_footage
@@ -17,7 +17,7 @@ from thumbnail_generator import generate_thumbnail
 from video_assembler     import build_video
 from youtube_uploader    import upload_video, upload_thumbnail
 
-WORK_DIR = '/tmp/daulat_mantra'
+WORK_DIR = '/tmp/fantasy_verse'
 
 
 def cleanup():
@@ -27,29 +27,32 @@ def cleanup():
 
 def main():
     print(f"\n{'='*60}")
-    print(f"Daulat Mantra Bot  —  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Fantasy Verse Bot  —  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
 
     os.makedirs(WORK_DIR, exist_ok=True)
 
-    # 1. Pick today's seed
-    print("[1/6] Picking today's topic...")
+    # 1. Pick today's trending anime + content format
+    print("[1/6] Picking today's trending topic...")
     topic = pick_topic()
 
-    # 2. Generate Hindi script + meta
-    print("\n[2/6] Generating Hindi script with Groq...")
+    # 2. Generate script + metadata
+    print("\n[2/6] Generating script with Groq...")
     meta = generate_script_and_metadata(topic)
-    script      = meta['script']
-    title       = meta['title']
-    description = meta['description']
-    tags        = meta['tags']
-    thumb_text  = meta['thumbnail_text']
+    script           = meta['script']
+    title            = meta['title']
+    description      = meta['description']
+    tags             = meta['tags']
+    thumb_text       = meta['thumbnail_text']
+    banner_tag       = meta['banner_tag']
+    focus_anime      = meta['focus_anime']
+    focus_characters = meta['focus_characters']
 
     with open(os.path.join(WORK_DIR, 'script.txt'), 'w', encoding='utf-8') as f:
         f.write(script)
 
-    # 3. Hindi voiceover
-    print("\n[3/6] Generating Hindi voiceover...")
+    # 3. Voiceover (sped up, daily-rotating accent)
+    print("\n[3/6] Generating voiceover...")
     audio_path = os.path.join(WORK_DIR, 'voiceover.mp3')
     try:
         generate_voiceover(script, audio_path)
@@ -57,16 +60,16 @@ def main():
         print(f"ERROR: TTS failed: {e}")
         sys.exit(1)
 
-    # 4. Cinematic imagery
-    print("\n[4/6] Generating cinematic imagery...")
+    # 4. Targeted imagery — multiple stills + character portraits
+    print("\n[4/6] Fetching anime imagery for the focus anime...")
     images_dir  = os.path.join(WORK_DIR, 'images')
     pexels_key  = os.environ.get('PEXELS_API_KEY', '')
     image_paths = fetch_footage(
-        image_prompt=topic['image_prompt'],
+        focus_anime=focus_anime,
+        focus_characters=focus_characters,
         output_dir=images_dir,
         pexels_key=pexels_key,
-        target_count=10,
-        rng_seed=topic['rng_seed'],
+        target_count=12,
     )
 
     # 5. Thumbnail + video
@@ -75,7 +78,7 @@ def main():
     generate_thumbnail(image_paths, thumb_text, thumbnail_path)
 
     output_path = os.path.join(WORK_DIR, 'final_video.mp4')
-    build_video(image_paths, audio_path, output_path)
+    build_video(image_paths, audio_path, output_path, banner_tag=banner_tag)
 
     if not os.path.exists(output_path):
         print("ERROR: Video file was not created.")

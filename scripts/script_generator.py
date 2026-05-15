@@ -1,9 +1,11 @@
 """
 script_generator.py
-Daulat Mantra — daily Hindi money/mindset wisdom Shorts.
+Generates the Short script using one of 7 content formats, chosen by
+trend_picker based on what's trending and whether news exists.
 
-Takes a seed concept and expands it into a viral 45-65 sec Hindi script
-that sounds like a real Hindi YouTuber (not AI-translated English).
+Each format has its own prompt so the script structure matches the
+content type — a "top 5 moments" script is paced differently from
+a "news commentary" script.
 """
 
 import os
@@ -12,72 +14,245 @@ from groq import Groq
 from datetime import datetime
 
 
-CATEGORY_FRAMING = {
-    'stoic':    "rooted in Stoic philosophy (Marcus Aurelius, Seneca, Epictetus) but applied to modern money and discipline",
-    'chanakya': "rooted in Chanakya Neeti and ancient Indian wisdom, applied to today's money and life decisions",
-    'gita':     "rooted in Bhagavad Gita teachings on karma, action, and detachment — applied to wealth-building today",
-    'modern':   "modern wealth psychology — Naval Ravikant, Warren Buffett, Charlie Munger ideas reframed for Indian context",
-    'mindset':  "discipline and mindset truths that separate the few from the many",
+HUMAN_VOICE_RULES = """
+WRITING STYLE — sound like a real person, NOT an AI:
+- Use contractions everywhere: don't, can't, it's, they're, you'd, gonna, kinda
+- Short, punchy sentences. Most under 12 words. Mix sentence lengths.
+- Drop natural filler occasionally: "okay so", "look", "honestly", "like", "basically", "wait"
+- Strategic ellipses ("...") for natural pauses at tension moments
+- Sound like you're texting a friend who's also an anime fan, not reading a press release
+- Personal hooks: "I just saw this and...", "Bro, you're not ready", "Wait till you hear this"
+- NEVER say robotic phrases: "It has been announced", "We are excited to share", "In other news"
+- Replace marketing-speak: "smash subscribe" → "hit follow" / "tap subscribe" / "don't sleep on this channel"
+- React like a fan, not a reporter: "yo", "no way", "I'm dead", "this hits different"
+""".strip()
+
+
+META_BLOCK_INSTRUCTIONS = """
+After the script, output EXACTLY this block:
+TITLE: [under 70 chars, MUST include #Shorts and the anime name, no clickbait emojis]
+DESCRIPTION: [80-120 words, casual tone matching the script, end with casual follow CTA]
+TAGS: [15 comma-separated tags, mix broad (anime, manga, otaku, anime 2026) and specific anime/character names]
+THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER"]
+BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR or TRENDING]
+FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the script. Empty if none.]
+SEARCH_TAGS: [8 hashtags starting with #]
+""".strip()
+
+
+# ---------------------------------------------------------------------------
+# Per-format prompts
+# ---------------------------------------------------------------------------
+
+def _prompt_news_commentary(anime_title, synopsis, news):
+    return f"""You are a 23-year-old anime YouTuber doing the daily Shorts script for "Fantasy Verse".
+
+TODAY'S STORY:
+Anime: {anime_title} (one of the most-watched anime right now)
+Quick context: {synopsis}
+Recent news: {news['title']}
+News details: {news['summary']}
+
+Write a 30-50 second high-energy reaction video about this news.
+
+STRUCTURE:
+1. HOOK (5-8 words, 0-3 sec) — shocked reaction or hot take
+2. THE NEWS (5-15 sec) — what happened, one or two short sentences
+3. REACTION + DETAILS (15-40 sec) — your take, fan reactions, what it means
+4. CLOSING (40-50 sec) — the "so what" + a real question to drive comments
+
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_character_spotlight(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a character spotlight Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending, one of the most-watched right now):
+{anime_title}
+Quick context: {synopsis}
+
+Pick ONE iconic character from this anime and break down why they're elite — power, personality, character arc, or a single legendary moment.
+
+STRUCTURE:
+1. HOOK (5-8 words) — bold claim about the character ("Gojo Satoru is anime's most overpowered character. Here's why.")
+2. WHO THEY ARE (5-15 sec) — quick intro
+3. WHY THEY'RE ELITE (15-40 sec) — 2-3 specific reasons with examples
+4. CLOSING (40-50 sec) — your hot take + ask viewers for their pick
+
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_top_moments(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "Top 3 Moments" Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Pick the TOP 3 most shocking, hype, or emotional moments from this anime and rank them. Be specific with episode references where possible.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "These 3 moments broke anime Twitter."
+2. NUMBER 3 (8 sec) — set up briefly, then the moment, your reaction
+3. NUMBER 2 (8 sec) — same pattern
+4. NUMBER 1 (12 sec) — bigger build, the moment, why it's #1
+5. CLOSING (5 sec) — ask viewers what they'd put at #1
+
+LENGTH: 130-170 words (this gives ~55-70 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_power_scaling(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a power-scaling debate Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Set up a fan-favorite "who would win" matchup involving a character from this anime vs another iconic anime character. Argue ONE side with conviction, then ask viewers.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "Most fans get this matchup wrong."
+2. THE MATCHUP (5-10 sec) — set it up: "[Character A] vs [Character B]"
+3. THE ARGUMENT (15-35 sec) — 2-3 reasons why your pick wins
+4. CLOSING (40-50 sec) — concede one weakness for credibility, then ask "Who wins?"
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_lore_drop(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a lore-deep-dive Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal ONE piece of lore, theory, or hidden detail that casual viewers usually miss. Could be foreshadowing, a name meaning, a Japanese cultural reference, a hidden manga panel detail, or a fan theory with real evidence.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "Most fans missed this detail in [anime]."
+2. SETUP (5-10 sec) — what you're about to reveal
+3. THE REVEAL (15-35 sec) — the detail itself + the evidence
+4. CLOSING (40-50 sec) — what it means for the story + ask if viewers caught it
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_manga_vs_anime(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "manga vs anime" comparison Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal 2-3 things the anime CHANGED or CUT from the manga. Be specific where possible. Take a clear stance on whether the anime did it better or the manga.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "The anime butchered this manga scene."
+2. CHANGE #1 (10 sec) — what was changed
+3. CHANGE #2 (10 sec) — what was changed
+4. (optional) CHANGE #3 (10 sec)
+5. CLOSING (5-10 sec) — your verdict + ask viewers which version they prefer
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_why_trending(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "why everyone is watching this" Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently the most-watched anime — viral right now):
+{anime_title}
+Quick context: {synopsis}
+
+Explain in fan-friendly terms why this anime is blowing up RIGHT NOW. Animation quality? Story twist? Character moment? Viral scene? Pick 2-3 concrete reasons.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "If you're not watching [anime] yet, fix that."
+2. THE PITCH (5-15 sec) — quick what-it's-about for newcomers
+3. WHY IT'S HOT (15-40 sec) — 2-3 specific reasons it's trending
+4. CLOSING (40-50 sec) — where to start watching + ask if viewers are caught up
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+PROMPT_DISPATCH = {
+    'news_commentary':     _prompt_news_commentary,
+    'character_spotlight': _prompt_character_spotlight,
+    'top_moments':         _prompt_top_moments,
+    'power_scaling':       _prompt_power_scaling,
+    'lore_drop':           _prompt_lore_drop,
+    'manga_vs_anime':      _prompt_manga_vs_anime,
+    'why_trending':        _prompt_why_trending,
 }
 
 
+# ---------------------------------------------------------------------------
+# Public
+# ---------------------------------------------------------------------------
+
 def generate_script_and_metadata(topic):
+    """
+    Args:
+        topic = {'anime': {...mal entry...}, 'news': {...}|None, 'content_type': str}
+    """
     client = Groq(api_key=os.environ['GROQ_API_KEY'])
 
-    category = topic['category']
-    seed     = topic['seed']
-    framing  = CATEGORY_FRAMING.get(category, 'timeless wisdom for money and life')
+    anime       = topic['anime']
+    news        = topic.get('news')
+    content_type = topic.get('content_type', 'why_trending')
 
-    prompt = f"""You write viral Hindi mindset/money Shorts for the YouTube channel "Daulat Mantra".
+    anime_title = anime.get('title_english') or anime.get('title') or 'Anime'
+    synopsis    = (anime.get('synopsis') or '')[:600]
 
-TODAY'S SEED IDEA:
-"{seed}"
+    builder = PROMPT_DISPATCH.get(content_type, _prompt_why_trending)
 
-This idea is {framing}. Expand it into a 45-65 second Hindi narration.
+    if content_type == 'news_commentary':
+        prompt = builder(anime_title, synopsis, news)
+    else:
+        prompt = builder(anime_title, synopsis)
 
-WRITING STYLE — sound like a real Hindi creator, NOT an AI translation:
-- 100% pure Hindi in Devanagari script (देवनागरी). Do NOT use roman/English letters.
-- Allow these common English-origin words written in Devanagari: मनी, माइंडसेट, फोकस, गोल, रिच, गरीब, बिज़नेस, सक्सेस, लाइफ, इन्वेस्ट, टाइम, हैबिट
-- Tone: like an older brother sharing real talk with a younger one, late at night
-- Short, punchy sentences. Mix lengths.
-- Use natural conversational fillers: "देखो", "समझो", "सुनो", "एक बात बताऊँ", "सोच के देखो"
-- Strategic pauses with "..." at moments of weight
-- Reference Indian context where natural — Tata, Ambani, Dhirubhai, गली का व्यापारी, चायवाला, etc.
-- AVOID: AI-sounding lines like "आज हम बात करेंगे...", "यह वीडियो आपको पसंद आए तो...", "हमारे चैनल पर..."
-
-STRUCTURE (write as flowing narration, no labels):
-
-1. HOOK (5-8 शब्द, 0-3 sec)
-   A bold claim or sharp question that hits instantly.
-   Examples: "ज़्यादातर लोग पैसा कभी नहीं समझ पाते।" / "अमीर लोग ये एक काम रोज़ करते हैं।" / "सोचो... आख़िरी बार आपने अपने आप से सच कब बोला था?"
-
-2. THE TRUTH (5-15 sec)
-   State the core principle clearly in 1-2 sentences. The seed idea, simplified.
-
-3. EXPLAIN + EXAMPLE (15-45 sec)
-   Unfold the idea. Give a relatable example — maybe a contrast between two types of people, or a small story (real or hypothetical). Make it visceral.
-
-4. CLOSING (45-60 sec)
-   End with a sharp realisation + a question that demands the viewer reflect.
-   Close with a casual subscribe ask — NOT "smash subscribe", but natural like:
-   "अगर ये बात सच लगी, तो चैनल पर बने रहो — रोज़ एक नई बात।" or
-   "इस तरह की बातें रोज़ चाहिए? Daulat Mantra को follow कर लो।"
-
-LENGTH: 130-180 Hindi words (Hindi gTTS reads slower than English, so ~50-60 sec).
-
-After the script, output EXACTLY this block:
-TITLE: [Hindi Devanagari title, max 65 chars, hook-style, MUST include #Shorts at the end. Examples: "अमीर लोग ये एक काम रोज़ करते हैं #Shorts", "सबसे बड़ा झूठ जो गरीब लोग मानते हैं #Shorts"]
-DESCRIPTION: [80-120 word Hindi description in Devanagari, expand on the idea slightly, end with casual follow CTA]
-TAGS: [15 comma-separated tags, mix Hindi-in-Devanagari and English: motivation hindi, mindset, paisa, daulat, success hindi, stoic hindi, chanakya niti, naval ravikant hindi, etc]
-THUMBNAIL_TEXT: [2-4 ALL CAPS Hindi words for thumbnail overlay. Examples: "अमीर बनो", "सोच बदलो", "सच्ची दौलत"]
-SEARCH_TAGS: [8 hashtags starting with #: #DaulatMantra #MindsetHindi #MotivationHindi #PaisaKaisaKamaye #SuccessHindi etc]
-"""
+    print(f"[script_generator] Content type: {content_type}")
+    print(f"[script_generator] Anime: {anime_title}")
 
     response = client.chat.completions.create(
         model='llama-3.3-70b-versatile',
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=0.85,
-        max_tokens=2000,
+        temperature=0.9,
+        max_tokens=1600,
     )
 
     raw = response.choices[0].message.content
@@ -95,26 +270,30 @@ SEARCH_TAGS: [8 hashtags starting with #: #DaulatMantra #MindsetHindi #Motivatio
     tags_raw       = extract('TAGS')
     tags           = [t.strip() for t in tags_raw.split(',') if t.strip()]
     thumbnail_text = extract('THUMBNAIL_TEXT')
+    banner_tag     = extract('BANNER_TAG') or ('BREAKING' if content_type == 'news_commentary' else 'TRENDING')
+    focus_chars_raw = extract('FOCUS_CHARACTERS')
+    focus_characters = [c.strip() for c in focus_chars_raw.split(',') if c.strip()]
     search_tags    = extract('SEARCH_TAGS')
 
-    # Ensure #Shorts is at the END of the title, exactly once
-    title = re.sub(r'#[Ss]horts', '', title).strip()
-    title = re.sub(r'\s+', ' ', title)
-    if len(title) > 60:
-        title = title[:60].rstrip()
-    title = f"{title} #Shorts"
+    if '#Shorts' not in title and '#shorts' not in title:
+        title = title[:60] + ' #Shorts'
 
     full_description = f"{description}\n\n{search_tags}"
 
-    print(f"[script_generator] Category: {category}")
-    print(f"[script_generator] Script length: {len(script.split())} words, {len(script)} chars")
+    print(f"[script_generator] Script: {len(script.split())} words")
     print(f"[script_generator] Title: {title}")
+    print(f"[script_generator] Banner: {banner_tag}")
+    if focus_characters:
+        print(f"[script_generator] Characters: {', '.join(focus_characters)}")
 
     return {
-        'script':         script,
-        'title':          title,
-        'description':    full_description,
-        'tags':           tags,
-        'thumbnail_text': thumbnail_text,
-        'category':       category,
+        'script':           script,
+        'title':            title,
+        'description':      full_description,
+        'tags':             tags,
+        'thumbnail_text':   thumbnail_text,
+        'banner_tag':       banner_tag.upper().strip(),
+        'focus_anime':      anime_title,
+        'focus_characters': focus_characters,
+        'content_type':     content_type,
     }

@@ -25,7 +25,8 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
-    ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, ColorClip,
+    ImageClip, AudioFileClip, VideoFileClip,
+    concatenate_videoclips, CompositeVideoClip, ColorClip,
 )
 
 WIDTH, HEIGHT = 1080, 1920
@@ -219,13 +220,45 @@ def create_outro_card(duration=2.5):
 # Build
 # ---------------------------------------------------------------------------
 
-def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
+def _load_video_shot(path, max_duration, banner_tag):
+    """Load an extracted trailer clip and overlay our banner+watermark on top."""
+    try:
+        vc = VideoFileClip(path).without_audio()
+        # Trim if clip is longer than the shot target
+        actual_dur = min(vc.duration, max_duration)
+        vc = vc.subclip(0, actual_dur)
+
+        # Bake overlay (watermark + BREAKING banner) on top of every frame.
+        # Cheaper than CompositeVideoClip — we render overlay once as an array
+        # and use fl_image to add it to each frame.
+        overlay_frame = add_overlay(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8),
+                                    banner_tag)
+        # Build a binary mask from the overlay (non-black pixels = overlay)
+        # so we only paint over the overlay regions, not whole image
+        non_black = (overlay_frame.sum(axis=2) > 8).astype(np.uint8)[:, :, None]
+
+        def stamp(frame):
+            return (frame * (1 - non_black) + overlay_frame * non_black).astype(np.uint8)
+
+        vc = vc.fl_image(stamp)
+        return vc, actual_dur
+    except Exception as e:
+        print(f"[video_assembler] Failed to load clip {path}: {e}")
+        return None, 0
+
+
+def build_video(image_paths, audio_path, output_path,
+                banner_tag="BREAKING", video_clip_paths=None):
     print("[video_assembler] Building director-style anime Short...")
+    video_clip_paths = video_clip_paths or []
 
     audio          = AudioFileClip(audio_path)
     total_duration = audio.duration
     print(f"[video_assembler] Audio: {total_duration:.1f}s")
+    print(f"[video_assembler] Sources: {len(image_paths)} stills + "
+          f"{len(video_clip_paths)} trailer clips")
 
+    # Prepare image backgrounds (with overlay baked in)
     if image_paths:
         backgrounds = [add_overlay(prepare_background(p), banner_tag) for p in image_paths]
     else:
@@ -235,10 +268,25 @@ def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
     outro_dur = 2.5
     content_dur = max(total_duration - intro_dur + 0.5, 5.0)
 
-    # Generate content shots with zoom punch + flash cuts
+    # Build a mixed source queue. If we have trailer clips, interleave:
+    #   clip, still, clip, still, ...  (~60% video / 40% stills feels right)
+    # If clips run out, fall back to stills for the rest.
+    sources = []
+    if video_clip_paths:
+        vi = ii = 0
+        while vi < len(video_clip_paths) or ii < len(backgrounds):
+            if vi < len(video_clip_paths):
+                sources.append(('video', video_clip_paths[vi]))
+                vi += 1
+            if ii < len(backgrounds):
+                sources.append(('image', backgrounds[ii]))
+                ii += 1
+    else:
+        sources = [('image', bg) for bg in backgrounds]
+
+    # Generate content shots
     content_clips = []
     current_t = 0.0
-    img_idx = 0
     shot_idx = 0
     shot_durations = _shot_durations()
 
@@ -249,26 +297,31 @@ def build_video(image_paths, audio_path, output_path, banner_tag="BREAKING"):
         if clip_dur < 0.4:
             break
 
-        bg = backgrounds[img_idx % len(backgrounds)]
-        shot = zoom_punch_clip(bg, clip_dur).set_start(current_t)
-        content_clips.append(shot)
+        source_type, source = sources[shot_idx % len(sources)]
 
-        # Flash frame between shots (skip after last shot)
-        if remaining > target + 0.1:
-            flash = flash_frame(0.06).set_start(current_t + clip_dur - 0.03)
-            content_clips.append(flash)
+        if source_type == 'video':
+            shot, actual_dur = _load_video_shot(source, clip_dur, banner_tag)
+            if shot is None:
+                shot_idx += 1
+                continue
+            shot = shot.set_start(current_t).crossfadein(0.2)
+            content_clips.append(shot)
+            current_t += actual_dur
+        else:
+            shot = zoom_punch_clip(source, clip_dur).set_start(current_t)
+            content_clips.append(shot)
+            # Flash frame between still shots
+            if remaining > target + 0.1:
+                flash = flash_frame(0.06).set_start(current_t + clip_dur - 0.03)
+                content_clips.append(flash)
+            current_t += clip_dur
 
-        current_t += clip_dur
-        img_idx += 1
         shot_idx += 1
 
-    # Stitch: intro + content (composite) + outro
     intro = create_intro_card(intro_dur)
     outro = create_outro_card(outro_dur)
 
-    # Content needs to be a single composite
     content = CompositeVideoClip(content_clips, size=(WIDTH, HEIGHT)).set_duration(content_dur)
-
     full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.2)
     full = full.set_audio(audio)
 

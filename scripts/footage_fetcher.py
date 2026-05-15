@@ -119,6 +119,11 @@ def _safebooru_search(tag, limit=8):
 # 3. Jikan — official poster/character art
 # ---------------------------------------------------------------------------
 
+def jikan_anime_id(title):
+    """Public alias — main.py uses this to resolve anime ID once."""
+    return _jikan_anime_id(title)
+
+
 def _jikan_anime_id(title):
     try:
         r = requests.get(JIKAN_SEARCH,

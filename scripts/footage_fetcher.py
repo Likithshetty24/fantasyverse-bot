@@ -1,266 +1,200 @@
 """
-footage_fetcher.py
-Pulls high-quality imagery from MULTIPLE free sources and mixes them:
+footage_fetcher.py — The AI Stack
+Tech / AI / cyber-aesthetic imagery for educational Shorts.
 
-  1. Wallhaven       - 4K anime wallpapers (no API key)
-  2. Safebooru       - Tag-indexed anime art, huge variety (no API key)
-  3. Jikan/MAL       - Official character portraits & key visuals (no API key)
-  4. Pollinations.ai - AI-generated scene-specific images (no API key)
-
-All sources are free, no keys, SFW filters applied.
+Sources (all free, no keys except optional Pexels):
+  1. Pollinations.ai — AI-generated tech visuals matched to the topic
+  2. Pexels         — high-quality tech/coding stock (needs key)
+  3. Unsplash       — fallback CDN endpoint (no key, no API)
 """
 
 import os
-import re
 import time
 import urllib.parse
 import requests
 
-# ---- Source endpoints -------------------------------------------------------
-WALLHAVEN_API    = "https://wallhaven.cc/api/v1/search"
-SAFEBOORU_API    = "https://safebooru.org/index.php"
-JIKAN_SEARCH     = "https://api.jikan.moe/v4/anime"
-JIKAN_PICTURES   = "https://api.jikan.moe/v4/anime/{id}/pictures"
-JIKAN_CHARACTERS = "https://api.jikan.moe/v4/characters"
-POLLINATIONS     = "https://image.pollinations.ai/prompt/{prompt}"
+POLLINATIONS  = "https://image.pollinations.ai/prompt/{prompt}"
+PEXELS_API    = "https://api.pexels.com/v1"
+UNSPLASH_SRC  = "https://source.unsplash.com"  # no auth, redirects to random image
 
-JIKAN_DELAY      = 0.4
-DEFAULT_TIMEOUT  = 20
+DEFAULT_TIMEOUT = 45
+MIN_FILESIZE    = 6000
+
+
+# Tech-aesthetic style tokens added to every Pollinations prompt
+STYLE_TOKENS = (
+    "cinematic, dramatic lighting, vertical 9:16, 4k, "
+    "futuristic technology aesthetic, neon cyan and blue accents, "
+    "dark background, glowing details, no text, no logos"
+)
+
+
+PROMPT_VARIANTS = [
+    "wide cinematic shot",
+    "close-up macro detail",
+    "abstract data visualization",
+    "neural network flowing particles",
+    "holographic UI floating",
+    "code on glowing screen",
+    "circuit board macro",
+    "developer workspace at night",
+    "AI brain abstract",
+    "digital flow lines",
+]
+
+
+# Pexels fallback queries for tech/AI aesthetic
+PEXELS_FALLBACK_QUERIES = [
+    "coding screen dark",
+    "neural network abstract",
+    "ai abstract technology",
+    "cyberpunk neon city",
+    "data visualization blue",
+    "futuristic technology",
+    "circuit board macro",
+    "developer workspace dark",
+    "robot artificial intelligence",
+    "holographic display",
+    "matrix code",
+    "server data center",
+]
+
+
+# Unsplash topic keywords for the no-key fallback
+UNSPLASH_KEYWORDS = ['technology', 'coding', 'ai', 'cyber', 'matrix',
+                     'neural-network', 'tech', 'futuristic', 'data', 'circuit']
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Download helper
 # ---------------------------------------------------------------------------
 
-def _safebooru_tag(name):
-    """Convert 'Demon Slayer' → 'demon_slayer' (Safebooru tag format)."""
-    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
-
-
-def _download(url, path):
+def _download(url, path, timeout=DEFAULT_TIMEOUT):
     try:
-        r = requests.get(url, timeout=DEFAULT_TIMEOUT, stream=True,
-                         headers={'User-Agent': 'FantasyVerseBot/1.0'})
+        r = requests.get(url, timeout=timeout, stream=True, allow_redirects=True,
+                         headers={'User-Agent': 'TheAIStackBot/1.0'})
         r.raise_for_status()
         with open(path, 'wb') as f:
             for chunk in r.iter_content(8192):
                 f.write(chunk)
-        # Sanity-check the file size
-        if os.path.getsize(path) < 4000:
+        if os.path.getsize(path) < MIN_FILESIZE:
             os.remove(path)
             return False
         return True
     except Exception as e:
-        print(f"[footage] Download failed {url[:70]}: {e}")
+        print(f"[footage] Download failed {url[:80]}: {e}")
+        if os.path.exists(path):
+            try: os.remove(path)
+            except: pass
         return False
 
 
 # ---------------------------------------------------------------------------
-# 1. Wallhaven — high-res anime wallpapers
+# Pollinations (primary)
 # ---------------------------------------------------------------------------
 
-def _wallhaven_search(query, limit=6):
-    """Returns list of high-res wallpaper URLs."""
-    try:
-        params = {
-            'q':         query,
-            'categories':'010',     # anime only
-            'purity':    '100',     # SFW only
-            'sorting':   'relevance',
-            'ratios':    'portrait,9x16,9x18',
-            'atleast':   '1080x1920',
-        }
-        r = requests.get(WALLHAVEN_API, params=params, timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        data = r.json().get('data', [])
-        urls = [w['path'] for w in data[:limit] if w.get('path')]
-        print(f"[footage] Wallhaven '{query}': {len(urls)} hits")
-        return urls
-    except Exception as e:
-        print(f"[footage] Wallhaven failed for '{query}': {e}")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# 2. Safebooru — tag-indexed anime art
-# ---------------------------------------------------------------------------
-
-def _safebooru_search(tag, limit=8):
-    """Returns list of art URLs filtered by tag (e.g. 'demon_slayer')."""
-    try:
-        params = {
-            'page':  'dapi',
-            's':     'post',
-            'q':     'index',
-            'json':  '1',
-            'tags':  f"{tag} rating:safe",
-            'limit': limit,
-        }
-        r = requests.get(SAFEBOORU_API, params=params, timeout=DEFAULT_TIMEOUT,
-                         headers={'User-Agent': 'FantasyVerseBot/1.0'})
-        r.raise_for_status()
-        posts = r.json() or []
-        urls = []
-        for p in posts:
-            # Safebooru sometimes nests, sometimes flat
-            url = p.get('file_url') or p.get('sample_url')
-            if not url and p.get('directory') and p.get('image'):
-                url = f"https://safebooru.org//images/{p['directory']}/{p['image']}"
-            if url:
-                urls.append(url)
-        print(f"[footage] Safebooru '{tag}': {len(urls)} hits")
-        return urls
-    except Exception as e:
-        print(f"[footage] Safebooru failed for '{tag}': {e}")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# 3. Jikan — official poster/character art
-# ---------------------------------------------------------------------------
-
-def jikan_anime_id(title):
-    """Public alias — main.py uses this to resolve anime ID once."""
-    return _jikan_anime_id(title)
-
-
-def _jikan_anime_id(title):
-    try:
-        r = requests.get(JIKAN_SEARCH,
-                         params={'q': title, 'limit': 3, 'order_by': 'popularity'},
-                         timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        data = r.json().get('data', [])
-        if data:
-            return data[0].get('mal_id')
-    except Exception as e:
-        print(f"[footage] Jikan ID lookup failed for '{title}': {e}")
-    return None
-
-
-def _jikan_pictures(anime_id, limit=6):
-    try:
-        r = requests.get(JIKAN_PICTURES.format(id=anime_id), timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        urls = []
-        for pic in r.json().get('data', []):
-            img = pic.get('jpg', {})
-            u = img.get('large_image_url') or img.get('image_url')
-            if u:
-                urls.append(u)
-        return urls[:limit]
-    except Exception:
-        return []
-
-
-def _jikan_character(name):
-    try:
-        r = requests.get(JIKAN_CHARACTERS,
-                         params={'q': name, 'limit': 3, 'order_by': 'favorites'},
-                         timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        data = r.json().get('data', [])
-        if data:
-            return data[0].get('images', {}).get('jpg', {}).get('image_url')
-    except Exception:
-        return None
-    return None
-
-
-# ---------------------------------------------------------------------------
-# 4. Pollinations.ai — AI-generated scene images
-# ---------------------------------------------------------------------------
-
-def _pollinations_url(prompt):
-    """Build a direct image URL — Pollinations generates on GET."""
+def _pollinations_url(prompt, seed=None):
     encoded = urllib.parse.quote(prompt, safe='')
-    return (
-        f"{POLLINATIONS.format(prompt=encoded)}"
-        f"?width=1080&height=1920&model=flux&nologo=true&enhance=true"
-    )
+    url = (f"{POLLINATIONS.format(prompt=encoded)}"
+           f"?width=1080&height=1920&model=flux&nologo=true&enhance=true")
+    if seed is not None:
+        url += f"&seed={seed}"
+    return url
 
 
-def _pollinations_prompts(anime, characters):
-    """Build 2-3 cinematic prompts for the AI generator."""
-    base_style = "anime style, cinematic, dramatic lighting, vertical composition, 4k, vibrant colors"
-    prompts = [f"epic scene from {anime}, dynamic pose, {base_style}"]
-
-    if characters:
-        char = characters[0]
-        prompts.append(f"{char} from {anime}, close-up portrait, intense expression, {base_style}")
-
-    prompts.append(f"{anime} aesthetic background, atmospheric, no characters, {base_style}")
+def _build_pollinations_prompts(topic_title, count=8):
+    """Build varied cinematic prompts for the day's topic."""
+    base = f"abstract visualization of {topic_title}"
+    prompts = []
+    for i in range(count):
+        variant = PROMPT_VARIANTS[i % len(PROMPT_VARIANTS)]
+        prompts.append(f"{base}, {variant}, {STYLE_TOKENS}")
     return prompts
+
+
+# ---------------------------------------------------------------------------
+# Pexels
+# ---------------------------------------------------------------------------
+
+def _pexels_search(query, api_key, count=2):
+    if not api_key:
+        return []
+    try:
+        r = requests.get(
+            f"{PEXELS_API}/search",
+            headers={"Authorization": api_key},
+            params={"query": query, "per_page": count,
+                    "orientation": "portrait", "size": "large"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return [p['src']['large2x'] for p in r.json().get('photos', [])]
+    except Exception as e:
+        print(f"[footage] Pexels failed for '{query}': {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Unsplash (no key — public source endpoint)
+# ---------------------------------------------------------------------------
+
+def _unsplash_url(keyword, seed=0):
+    # source.unsplash.com redirects to a random photo matching the keyword
+    return f"{UNSPLASH_SRC}/1080x1920/?{keyword}&sig={seed}"
 
 
 # ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
 
-def fetch_footage(focus_anime, focus_characters, output_dir,
-                  pexels_key=None, target_count=15):
+def fetch_footage(topic_title, output_dir, pexels_key=None,
+                  target_count=10, rng_seed=None):
     """
-    Pull a varied mix of high-quality imagery for today's anime.
+    Pull tech/AI-aesthetic imagery matched to today's topic.
     Returns list of local image paths.
     """
     os.makedirs(output_dir, exist_ok=True)
     downloaded = []
-    seen = set()
     idx = 0
 
-    def save(url, source_tag):
+    def save(url, source_tag, timeout=DEFAULT_TIMEOUT):
         nonlocal idx
-        if not url or url in seen or idx >= target_count:
+        if idx >= target_count:
             return False
-        seen.add(url)
         p = os.path.join(output_dir, f"img_{idx:03d}_{source_tag}.jpg")
-        if _download(url, p):
+        if _download(url, p, timeout=timeout):
             downloaded.append(p)
             idx += 1
             return True
         return False
 
-    # ---- 1. Wallhaven (4K anime wallpapers) ----
-    for url in _wallhaven_search(focus_anime, limit=5):
-        save(url, 'wh')
-
-    # ---- 2. Safebooru (tagged anime art) ----
-    sb_tag = _safebooru_tag(focus_anime)
-    for url in _safebooru_search(sb_tag, limit=6):
-        save(url, 'sb')
-
-    # ---- 3. Jikan (official posters + character portraits) ----
-    anime_id = _jikan_anime_id(focus_anime)
-    time.sleep(JIKAN_DELAY)
-    if anime_id:
-        for url in _jikan_pictures(anime_id, limit=4):
-            save(url, 'mal')
-        time.sleep(JIKAN_DELAY)
-
-    for char in (focus_characters or [])[:4]:
+    # ---- 1. Pollinations (AI-generated, topic-matched) ----
+    base_seed = abs(hash(rng_seed or '')) % (2**31) if rng_seed else None
+    prompts = _build_pollinations_prompts(topic_title, count=target_count)
+    print(f"[footage] Generating up to {len(prompts)} Pollinations images...")
+    for i, prompt in enumerate(prompts):
         if idx >= target_count:
             break
-        char_url = _jikan_character(char)
-        time.sleep(JIKAN_DELAY)
-        if char_url:
-            save(char_url, 'char')
+        seed = (base_seed + i) % (2**31) if base_seed is not None else None
+        save(_pollinations_url(prompt, seed=seed), 'ai')
 
-    # ---- 4. Pollinations AI-generated scenes ----
-    # Only fire 2 generations to avoid long waits (each takes 5-15 sec)
-    if idx < target_count - 1:
-        prompts = _pollinations_prompts(focus_anime, focus_characters)
-        for prompt in prompts[:2]:
+    # ---- 2. Pexels fallback ----
+    if idx < target_count and pexels_key:
+        print(f"[footage] Topping up with Pexels...")
+        for q in PEXELS_FALLBACK_QUERIES:
             if idx >= target_count:
                 break
-            url = _pollinations_url(prompt)
-            save(url, 'ai')
+            for url in _pexels_search(q, pexels_key, count=2):
+                save(url, 'pex', timeout=20)
 
-    # ---- Last resort: searching Wallhaven by character if low count ----
-    if idx < 5 and focus_characters:
-        for char in focus_characters[:2]:
-            for url in _wallhaven_search(char, limit=3):
-                save(url, 'wh-char')
+    # ---- 3. Unsplash last-resort ----
+    if idx < target_count:
+        print(f"[footage] Topping up with Unsplash...")
+        seed = (base_seed or 1) + idx
+        for kw in UNSPLASH_KEYWORDS:
+            if idx >= target_count:
+                break
+            save(_unsplash_url(kw, seed=seed + idx), 'us', timeout=20)
 
-    print(f"[footage] Total downloaded: {len(downloaded)} images "
-          f"(targets: {target_count})")
+    print(f"[footage] Total downloaded: {len(downloaded)} images (target: {target_count})")
     return downloaded

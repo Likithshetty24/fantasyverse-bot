@@ -1,10 +1,8 @@
-name: The AI Stack Daily Short
+name: Fantasy Verse Daily Anime Short
 
 on:
   schedule:
-    # 14:00 UTC = 10am ET / 7am PT / 7:30pm IST — catches US morning,
-    # India evening, Europe afternoon. Solid mixed-audience window.
-    - cron: '0 14 * * *'
+    - cron: '0 20 * * *'   # 8 PM UTC = peak YouTube traffic
   workflow_dispatch:
 
 jobs:
@@ -30,7 +28,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run The AI Stack Bot
+      - name: Run Fantasy Verse Bot
         env:
           GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}

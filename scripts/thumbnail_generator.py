@@ -1,7 +1,7 @@
 """
-thumbnail_generator.py — The AI Stack
-1280x720 thumbnail for tech/AI Shorts.
-Dark cinematic background + big cyan headline + small channel mark.
+thumbnail_generator.py
+1280x720 thumbnail for Fantasy Verse anime news Shorts.
+Bold yellow text with black stroke + red BREAKING badge.
 """
 
 import textwrap
@@ -9,12 +9,14 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 THUMB_W, THUMB_H = 1280, 720
 
-BRAND_CYAN   = (32, 184, 220)
-CYAN_BRIGHT  = (90, 220, 255)
-TEXT_COLOR   = (240, 245, 250)
-BG_DARK      = (8, 12, 20)
+BRAND_PURPLE = (138, 43, 226)
+ACCENT_YELLOW = (255, 220, 0)
+BANNER_RED   = (220, 30, 30)
+TEXT_COLOR   = (255, 255, 255)
+BG_DARK      = (8, 5, 14)
 
-FONT_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+FONT_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+FONT_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 
 
 def _font(path, size):
@@ -42,50 +44,42 @@ def _prepare_bg(img_path):
     img  = img.crop((left, top, left + THUMB_W, top + THUMB_H))
 
     img = img.filter(ImageFilter.GaussianBlur(radius=2))
-    img = ImageEnhance.Brightness(img).enhance(0.45)
-    img = ImageEnhance.Contrast(img).enhance(1.20)
-    img = ImageEnhance.Color(img).enhance(0.85)
+    img = ImageEnhance.Brightness(img).enhance(0.55)
+    img = ImageEnhance.Color(img).enhance(1.25)
+    img = ImageEnhance.Contrast(img).enhance(1.15)
     return img
 
 
-def _draw_overlay_grid(draw):
-    """Subtle tech-grid pattern over the whole thumbnail."""
-    for i in range(0, THUMB_W, 80):
-        draw.line([(i, 0), (i, THUMB_H)], fill=(20, 35, 55))
-    for j in range(0, THUMB_H, 80):
-        draw.line([(0, j), (THUMB_W, j)], fill=(20, 35, 55))
+def _draw_thumbnail_text(draw, text):
+    """Large yellow Hindi-style text with thick black stroke."""
+    lines = textwrap.wrap(text.upper(), width=12)[:2] if text else ["BREAKING ANIME NEWS"]
 
-
-def _draw_headline(draw, text):
-    """Big cyan headline center-anchored with thick stroke."""
-    lines = textwrap.wrap(text.upper(), width=12)[:2] if text else ["AI EXPLAINED"]
     font_size = 130 if max(len(l) for l in lines) <= 10 else 100
     font = _font(FONT_BOLD, font_size)
 
     total_h = len(lines) * (font_size + 16)
-    y       = (THUMB_H - total_h) // 2
+    y       = (THUMB_H - total_h) // 2 + 20
 
     for line in lines:
-        for dx, dy in [(-4, 4), (4, 4), (-4, -4), (4, -4), (0, 5)]:
+        # Thick black stroke
+        for dx, dy in [(-4, 4), (4, 4), (-4, -4), (4, -4), (-4, 0), (4, 0), (0, -4), (0, 4)]:
             draw.text((THUMB_W // 2 + dx, y + dy), line, fill=(0, 0, 0), font=font, anchor="mm")
-        draw.text((THUMB_W // 2, y), line, fill=CYAN_BRIGHT, font=font, anchor="mm")
+        # Yellow fill
+        draw.text((THUMB_W // 2, y), line, fill=ACCENT_YELLOW, font=font, anchor="mm")
         y += font_size + 16
 
 
 def _draw_brand(draw):
-    """Small bottom channel mark + corner pill."""
-    # Top-left corner pill
-    font_pill = _font(FONT_BOLD, 36)
-    draw.rounded_rectangle([20, 20, 220, 75], radius=10, fill=BG_DARK,
-                           outline=BRAND_CYAN, width=3)
-    draw.text((120, 47), "DAILY AI", fill=BRAND_CYAN, font=font_pill, anchor="mm")
+    # Top-left BREAKING badge
+    font_tag = _font(FONT_BOLD, 42)
+    draw.rectangle([20, 25, 320, 85], fill=BANNER_RED)
+    draw.rectangle([20, 25, 30, 85], fill=TEXT_COLOR)
+    draw.text((40, 32), "BREAKING", fill=TEXT_COLOR, font=font_tag)
 
     # Bottom channel name
     font_brand = _font(FONT_BOLD, 48)
-    draw.text((THUMB_W // 2, THUMB_H - 50), "▸ THE AI STACK",
+    draw.text((THUMB_W // 2, THUMB_H - 50), "⚡ FANTASY VERSE",
               fill=TEXT_COLOR, font=font_brand, anchor="mm")
-    draw.rectangle([THUMB_W // 2 - 150, THUMB_H - 23,
-                    THUMB_W // 2 + 150, THUMB_H - 20], fill=BRAND_CYAN)
 
 
 def generate_thumbnail(image_paths, thumbnail_text, output_path):
@@ -98,8 +92,7 @@ def generate_thumbnail(image_paths, thumbnail_text, output_path):
         bg = Image.new('RGB', (THUMB_W, THUMB_H), BG_DARK)
 
     draw = ImageDraw.Draw(bg)
-    _draw_overlay_grid(draw)
-    _draw_headline(draw, thumbnail_text)
+    _draw_thumbnail_text(draw, thumbnail_text)
     _draw_brand(draw)
 
     bg.save(output_path, 'JPEG', quality=95)

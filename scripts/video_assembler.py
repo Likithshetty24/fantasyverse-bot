@@ -1,14 +1,16 @@
 """
-video_assembler.py — The AI Stack
-Tech-aesthetic vertical Short builder.
+video_assembler.py
+Fantasy Verse anime news Short — director-style production.
 
-  * 1080x1920 vertical, 30fps, 45-60 sec
-  * Cool blue/cyan color grade
-  * Subtle channel watermark top-left
-  * Small content-type pill top-right (NEW / EXPLAINER / TOOL / NEWS)
-  * Gentle Ken Burns zoom + occasional zoom punch
-  * Minimal flash cuts (less aggressive than the anime version)
-  * High-quality encode (CRF 19, preset slow)
+Production elements:
+  * 1080x1920 vertical, 30fps, 30-60 sec
+  * Fast cuts: every 1.5-2.5 sec
+  * Zoom-punch entry on each new shot (rapid 1.25x → 1.0x in 0.25s)
+  * White flash frames between cuts (1 frame = ~33ms)
+  * Lower-third red "BREAKING" / "LEAKED" / "RUMOR" banner (top-positioned)
+  * High-saturation anime color grade
+  * Channel watermark top-left
+  * NO subtitles, NO captions on screen
 """
 
 import os
@@ -18,31 +20,29 @@ from datetime import datetime
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
+# moviepy 1.0.3 + Pillow 10 compat shim
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
-    ImageClip, AudioFileClip, concatenate_videoclips,
-    CompositeVideoClip, ColorClip,
+    ImageClip, AudioFileClip, VideoFileClip,
+    concatenate_videoclips, CompositeVideoClip, ColorClip,
 )
 
 WIDTH, HEIGHT = 1080, 1920
 FPS = 30
 
-
+# Pacing: faster cuts later in the video for retention.
+# Slightly randomised per-day so the rhythm doesn't feel mechanical.
 def _shot_durations():
-    """Shot pacing — slightly slower than anime, content takes precedence."""
     rng = random.Random(datetime.now().strftime('%Y%m%d'))
-    base = [3.5, 3.0, 2.8, 2.6, 2.4, 2.5, 2.7, 2.6, 2.8, 3.0, 3.2]
+    base = [3.2, 2.5, 2.2, 2.0, 1.9, 1.8, 1.7, 1.6, 1.7, 1.8, 2.0, 2.2]
     return [round(d + rng.uniform(-0.25, 0.25), 2) for d in base]
 
-
-# Tech palette — cool, modern, developer-friendly
-BRAND_CYAN  = (32, 184, 220)
-ACCENT_BLUE = (84, 120, 245)
-TEXT_COLOR  = (240, 245, 250)
-BG_DARK     = (8, 12, 20)
-PILL_DARK   = (20, 28, 40)
+BRAND_PURPLE = (138, 43, 226)
+BANNER_RED   = (220, 30, 30)
+TEXT_COLOR   = (255, 255, 255)
+BG_DARK      = (8, 5, 14)
 
 FONT_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 FONT_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
@@ -56,10 +56,11 @@ def _font(path, size):
 
 
 # ---------------------------------------------------------------------------
-# Background prep — tech color grade, soft vignette
+# Background preparation
 # ---------------------------------------------------------------------------
 
 def prepare_background(img_path):
+    """Crop to 9:16, mild blur, push anime saturation/contrast."""
     img = Image.open(img_path).convert('RGB')
 
     img_r   = img.width / img.height
@@ -76,177 +77,214 @@ def prepare_background(img_path):
     top  = (new_h - HEIGHT) // 2
     img  = img.crop((left, top, left + WIDTH, top + HEIGHT))
 
-    img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
-    img = ImageEnhance.Brightness(img).enhance(0.78)
-    img = ImageEnhance.Contrast(img).enhance(1.15)
-    img = ImageEnhance.Color(img).enhance(1.05)
+    # Anime grade: bright, vibrant, slight blur for cinematic feel
+    img = img.filter(ImageFilter.GaussianBlur(radius=2))
+    img = ImageEnhance.Brightness(img).enhance(0.75)
+    img = ImageEnhance.Contrast(img).enhance(1.20)
+    img = ImageEnhance.Color(img).enhance(1.35)
 
-    # Cool color cast: push blue, pull red slightly
-    arr = np.array(img).astype(np.int16)
-    arr[..., 0] = np.clip(arr[..., 0] - 6, 0, 255)
-    arr[..., 2] = np.clip(arr[..., 2] + 10, 0, 255)
-    arr = arr.astype(np.uint8)
-
-    # Soft vignette
-    arr = arr.astype(np.float32)
-    y, x = np.ogrid[:HEIGHT, :WIDTH]
-    cx, cy = WIDTH / 2, HEIGHT / 2
-    dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-    max_dist = np.sqrt(cx ** 2 + cy ** 2)
-    vignette = 1.0 - 0.35 * (dist / max_dist) ** 1.5
-    arr *= vignette[:, :, np.newaxis]
-    arr = np.clip(arr, 0, 255).astype(np.uint8)
-
-    return arr
+    return np.array(img)
 
 
 def make_gradient_background():
+    """Dark purple gradient — fallback only."""
     img  = Image.new('RGB', (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(img)
     for y in range(HEIGHT):
         t = y / HEIGHT
-        r = int(8  + 12 * t)
-        g = int(12 + 40 * t)
-        b = int(20 + 80 * t)
+        r = int(8  + 50 * t)
+        g = int(5  + 10 * t)
+        b = int(14 + 80 * t)
         draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
     return np.array(img)
 
 
 # ---------------------------------------------------------------------------
-# Subtle overlay: small channel mark + small type pill
+# Overlay (watermark + banner) — baked into each frame
 # ---------------------------------------------------------------------------
 
-def add_overlay(frame_array, banner_tag="EXPLAINER"):
+def add_overlay(frame_array, banner_tag="BREAKING"):
     img  = Image.fromarray(frame_array)
     draw = ImageDraw.Draw(img)
 
-    # Top-left: small channel name (no big bar)
-    font_brand = _font(FONT_BOLD, 30)
-    # Subtle shadow
-    draw.text((32, 34), "▸ THE AI STACK", fill=(0, 0, 0), font=font_brand)
-    draw.text((30, 32), "▸ THE AI STACK", fill=TEXT_COLOR, font=font_brand)
+    # Top dark gradient bar for legibility
+    bar_h = 130
+    for y in range(bar_h):
+        alpha = int(220 * (1 - y / bar_h))
+        draw.line([(0, y), (WIDTH, y)], fill=(0, 0, 0))
 
-    # Tiny cyan underscore
-    draw.rectangle([30, 68, 30 + 110, 71], fill=BRAND_CYAN)
+    # Purple accent stripe
+    draw.rectangle([0, bar_h - 4, WIDTH, bar_h], fill=BRAND_PURPLE)
 
-    # Top-right: content type pill (NEW/EXPLAINER/TOOL/NEWS)
+    # Channel name top-left
+    font_brand = _font(FONT_BOLD, 38)
+    draw.text((30, 30), "⚡ FANTASY VERSE", fill=TEXT_COLOR, font=font_brand)
+
+    # Handle below
+    font_handle = _font(FONT_REGULAR, 24)
+    draw.text((30, 78), "Daily Anime News", fill=(200, 180, 255), font=font_handle)
+
+    # Lower-third red BREAKING banner (positioned at ~y=180 to avoid Shorts UI)
     if banner_tag:
-        font_pill = _font(FONT_BOLD, 26)
-        text = f" {banner_tag} "
-        bbox = draw.textbbox((0, 0), text, font=font_pill)
-        pw = bbox[2] - bbox[0] + 22
-        ph = bbox[3] - bbox[1] + 16
-        px = WIDTH - pw - 30
-        py = 28
+        banner_y = bar_h + 30
+        # Red pill background
+        font_banner = _font(FONT_BOLD, 56)
+        tag_text = f"  {banner_tag}  "
+        bbox = draw.textbbox((0, 0), tag_text, font=font_banner)
+        bw = bbox[2] - bbox[0] + 30
+        bh = bbox[3] - bbox[1] + 25
 
+        bx = 30
         # Drop shadow
-        draw.rounded_rectangle([px + 2, py + 2, px + pw + 2, py + ph + 2],
-                                radius=12, fill=(0, 0, 0))
-        # Pill background
-        draw.rounded_rectangle([px, py, px + pw, py + ph],
-                                radius=12, fill=PILL_DARK,
-                                outline=BRAND_CYAN, width=2)
-        draw.text((px + 11, py + 6), banner_tag, fill=BRAND_CYAN, font=font_pill)
+        draw.rectangle([bx + 4, banner_y + 4, bx + bw + 4, banner_y + bh + 4], fill=(0, 0, 0))
+        # Main banner
+        draw.rectangle([bx, banner_y, bx + bw, banner_y + bh], fill=BANNER_RED)
+        # Tiny white tab on left edge
+        draw.rectangle([bx, banner_y, bx + 8, banner_y + bh], fill=TEXT_COLOR)
+        # Banner text
+        draw.text((bx + 18, banner_y + 6), banner_tag, fill=TEXT_COLOR, font=font_banner)
 
     return np.array(img)
 
 
 # ---------------------------------------------------------------------------
-# Effects
+# Effects: zoom punch + flash cut
 # ---------------------------------------------------------------------------
 
-def gentle_zoom_clip(bg_array, duration):
-    """Slow Ken Burns — 1.0 → 1.05 over duration."""
-    clip = ImageClip(bg_array).set_duration(duration)
-    def scale(t):
-        return 1.0 + 0.05 * (t / duration)
-    return clip.resize(scale).set_position('center')
-
-
 def zoom_punch_clip(bg_array, duration):
-    """Zoom-punch entry (1.18 → 1.0 in 0.25s) then drift to 1.04."""
+    """ImageClip that starts at 1.25x zoom and snaps to 1.0x in 0.25s, then slowly drifts to 1.06x."""
     clip = ImageClip(bg_array).set_duration(duration)
     punch_dur = 0.25
-    drift_to = 1.04
+    drift_to = 1.06
+
     def scale(t):
         if t < punch_dur:
-            return 1.18 - (1.18 - 1.0) * (t / punch_dur)
+            return 1.25 - (1.25 - 1.0) * (t / punch_dur)
+        # Slow drift
         progress = (t - punch_dur) / max(duration - punch_dur, 0.01)
         return 1.0 + (drift_to - 1.0) * progress
+
     return clip.resize(scale).set_position('center')
 
 
-def flash_frame(duration=0.04):
-    return ColorClip(size=(WIDTH, HEIGHT),
-                     color=(220, 230, 245)).set_duration(duration)
+def flash_frame(duration=0.05):
+    """White ColorClip used between shots."""
+    return ColorClip(size=(WIDTH, HEIGHT), color=(255, 255, 255)).set_duration(duration)
 
 
 # ---------------------------------------------------------------------------
 # Intro / Outro
 # ---------------------------------------------------------------------------
 
-def create_intro_card(duration=1.5):
+def create_intro_card(duration=1.8):
     img  = Image.new('RGB', (WIDTH, HEIGHT), BG_DARK)
     draw = ImageDraw.Draw(img)
 
-    # Subtle cyan accent lines (grid feel)
-    for i in range(0, WIDTH, 90):
-        draw.line([(i, 0), (i, HEIGHT)], fill=(15, 30, 50))
-    for j in range(0, HEIGHT, 90):
-        draw.line([(0, j), (WIDTH, j)], fill=(15, 30, 50))
+    # Diagonal accent stripes
+    for i in range(-HEIGHT, WIDTH, 12):
+        c = int(60 + 40 * abs(math.sin(i * 0.02)))
+        draw.line([(i, 0), (i + HEIGHT, HEIGHT)], fill=(c // 3, 0, c))
 
     font_big = _font(FONT_BOLD, 130)
-    font_sub = _font(FONT_REGULAR, 50)
+    font_sub = _font(FONT_BOLD, 56)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 80), "THE AI", fill=BRAND_CYAN, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 60), "STACK",  fill=BRAND_CYAN, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 200), "daily AI for builders",
-              fill=TEXT_COLOR, font=font_sub, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 130), "FANTASY", fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 20),  "VERSE",   fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 160), "ANIME NEWS", fill=TEXT_COLOR, font=font_sub, anchor="mm")
 
     draw.rectangle(
-        [WIDTH // 2 - 200, HEIGHT // 2 + 250, WIDTH // 2 + 200, HEIGHT // 2 + 254],
-        fill=BRAND_CYAN,
+        [WIDTH // 2 - 240, HEIGHT // 2 + 220, WIDTH // 2 + 240, HEIGHT // 2 + 226],
+        fill=BRAND_PURPLE,
     )
-    return ImageClip(np.array(img)).set_duration(duration).fadein(0.25).fadeout(0.2)
+
+    return ImageClip(np.array(img)).set_duration(duration).fadein(0.2)
 
 
 def create_outro_card(duration=2.5):
     img  = Image.new('RGB', (WIDTH, HEIGHT), BG_DARK)
     draw = ImageDraw.Draw(img)
 
-    font_big   = _font(FONT_BOLD, 80)
-    font_med   = _font(FONT_BOLD, 56)
+    font_big   = _font(FONT_BOLD, 85)
+    font_med   = _font(FONT_BOLD, 55)
     font_small = _font(FONT_REGULAR, 38)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 200), "WANT MORE?",      fill=TEXT_COLOR, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 90),  "FOLLOW for daily", fill=BRAND_CYAN, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 20),  "AI builds & news", fill=BRAND_CYAN, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 130), "▸ THE AI STACK",   fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 200), "FOLLOW FOR",      fill=TEXT_COLOR, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 90),  "DAILY ANIME NEWS", fill=BRAND_PURPLE, font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 60),  "LIKE • SUBSCRIBE • COMMENT", fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 170), "@FantasyVerse",   fill=(180, 160, 255), font=font_small, anchor="mm")
 
-    return ImageClip(np.array(img)).set_duration(duration).fadein(0.3).fadeout(0.3)
+    return ImageClip(np.array(img)).set_duration(duration).fadein(0.2).fadeout(0.3)
 
 
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 
-def build_video(image_paths, audio_path, output_path, banner_tag="EXPLAINER"):
-    print("[video_assembler] Building tech-aesthetic AI Short...")
+def _load_video_shot(path, max_duration, banner_tag):
+    """Load an extracted trailer clip and overlay our banner+watermark on top."""
+    try:
+        vc = VideoFileClip(path).without_audio()
+        # Trim if clip is longer than the shot target
+        actual_dur = min(vc.duration, max_duration)
+        vc = vc.subclip(0, actual_dur)
+
+        # Bake overlay (watermark + BREAKING banner) on top of every frame.
+        # Cheaper than CompositeVideoClip — we render overlay once as an array
+        # and use fl_image to add it to each frame.
+        overlay_frame = add_overlay(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8),
+                                    banner_tag)
+        # Build a binary mask from the overlay (non-black pixels = overlay)
+        # so we only paint over the overlay regions, not whole image
+        non_black = (overlay_frame.sum(axis=2) > 8).astype(np.uint8)[:, :, None]
+
+        def stamp(frame):
+            return (frame * (1 - non_black) + overlay_frame * non_black).astype(np.uint8)
+
+        vc = vc.fl_image(stamp)
+        return vc, actual_dur
+    except Exception as e:
+        print(f"[video_assembler] Failed to load clip {path}: {e}")
+        return None, 0
+
+
+def build_video(image_paths, audio_path, output_path,
+                banner_tag="BREAKING", video_clip_paths=None):
+    print("[video_assembler] Building director-style anime Short...")
+    video_clip_paths = video_clip_paths or []
 
     audio          = AudioFileClip(audio_path)
     total_duration = audio.duration
     print(f"[video_assembler] Audio: {total_duration:.1f}s")
+    print(f"[video_assembler] Sources: {len(image_paths)} stills + "
+          f"{len(video_clip_paths)} trailer clips")
 
+    # Prepare image backgrounds (with overlay baked in)
     if image_paths:
-        backgrounds = [add_overlay(prepare_background(p), banner_tag)
-                       for p in image_paths]
+        backgrounds = [add_overlay(prepare_background(p), banner_tag) for p in image_paths]
     else:
         backgrounds = [add_overlay(make_gradient_background(), banner_tag)]
 
-    intro_dur = 1.5
+    intro_dur = 1.8
     outro_dur = 2.5
     content_dur = max(total_duration - intro_dur + 0.5, 5.0)
 
+    # Build a mixed source queue. If we have trailer clips, interleave:
+    #   clip, still, clip, still, ...  (~60% video / 40% stills feels right)
+    # If clips run out, fall back to stills for the rest.
+    sources = []
+    if video_clip_paths:
+        vi = ii = 0
+        while vi < len(video_clip_paths) or ii < len(backgrounds):
+            if vi < len(video_clip_paths):
+                sources.append(('video', video_clip_paths[vi]))
+                vi += 1
+            if ii < len(backgrounds):
+                sources.append(('image', backgrounds[ii]))
+                ii += 1
+    else:
+        sources = [('image', bg) for bg in backgrounds]
+
+    # Generate content shots
     content_clips = []
     current_t = 0.0
     shot_idx = 0
@@ -256,33 +294,42 @@ def build_video(image_paths, audio_path, output_path, banner_tag="EXPLAINER"):
         remaining = content_dur - current_t
         target = shot_durations[shot_idx % len(shot_durations)]
         clip_dur = min(target, remaining)
-        if clip_dur < 0.5:
+        if clip_dur < 0.4:
             break
 
-        bg = backgrounds[shot_idx % len(backgrounds)]
-        # Alternate gentle Ken Burns and zoom-punch for variety
-        if shot_idx % 3 == 0:
-            shot = zoom_punch_clip(bg, clip_dur)
+        source_type, source = sources[shot_idx % len(sources)]
+
+        if source_type == 'video':
+            shot, actual_dur = _load_video_shot(source, clip_dur, banner_tag)
+            if shot is None:
+                shot_idx += 1
+                continue
+            shot = shot.set_start(current_t).crossfadein(0.2)
+            content_clips.append(shot)
+            current_t += actual_dur
         else:
-            shot = gentle_zoom_clip(bg, clip_dur)
-        shot = shot.set_start(current_t).crossfadein(0.3)
-        content_clips.append(shot)
+            shot = zoom_punch_clip(source, clip_dur).set_start(current_t)
+            content_clips.append(shot)
+            # Flash frame between still shots
+            if remaining > target + 0.1:
+                flash = flash_frame(0.06).set_start(current_t + clip_dur - 0.03)
+                content_clips.append(flash)
+            current_t += clip_dur
 
-        # Subtle flash every few shots only
-        if shot_idx % 4 == 3 and remaining > target + 0.1:
-            flash = flash_frame(0.04).set_start(current_t + clip_dur - 0.02)
-            content_clips.append(flash)
-
-        current_t += clip_dur
         shot_idx += 1
 
     intro = create_intro_card(intro_dur)
     outro = create_outro_card(outro_dur)
 
     content = CompositeVideoClip(content_clips, size=(WIDTH, HEIGHT)).set_duration(content_dur)
-    full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.25)
+    full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.2)
     full = full.set_audio(audio)
 
+    # High-quality encode:
+    #   preset=slow → better compression efficiency at given bitrate
+    #   CRF 19    → visually near-lossless for YouTube
+    #   pix_fmt yuv420p → universal mobile/web compatibility
+    #   tune film → preserves detail in high-motion anime art
     full.write_videofile(
         output_path,
         fps=FPS,

@@ -1,8 +1,11 @@
 """
-script_generator.py — The AI Stack
-Generates a 45-60 second educational AI/LLM Shorts script using one of
-four content formats. Each format has its own prompt tuned for the
-content type — a concept explainer paces differently from a news take.
+script_generator.py
+Generates the Short script using one of 7 content formats, chosen by
+trend_picker based on what's trending and whether news exists.
+
+Each format has its own prompt so the script structure matches the
+content type — a "top 5 moments" script is paced differently from
+a "news commentary" script.
 """
 
 import os
@@ -12,19 +15,16 @@ from datetime import datetime
 
 
 HUMAN_VOICE_RULES = """
-WRITING STYLE — sound like a smart developer talking to other developers:
-- Use contractions everywhere: don't, won't, that's, you'll, it's, gonna
-- Short sentences, mix lengths. Most under 14 words.
-- Drop technical-but-casual filler: "okay so", "look", "honestly", "here's the thing"
-- Strategic ellipses for natural pauses on key reveals
-- Tone: confident engineer who's been building with this stuff, not lecturing
-- Personal hooks: "I built X with this last week", "If you've ever wondered..."
-- NEVER say AI-narrator phrases: "In this video we will discuss", "Welcome back",
-  "Today's topic is", "Let's dive in", "In conclusion"
-- Avoid corporate marketing-speak. No "revolutionary", "game-changing",
-  "next-generation" unless ironic
-- Subscribe ask: casual — "drop a follow if you want more", "hit subscribe for
-  daily AI", never "smash that subscribe button"
+WRITING STYLE — sound like a real person, NOT an AI:
+- Use contractions everywhere: don't, can't, it's, they're, you'd, gonna, kinda
+- Short, punchy sentences. Most under 12 words. Mix sentence lengths.
+- Drop natural filler occasionally: "okay so", "look", "honestly", "like", "basically", "wait"
+- Strategic ellipses ("...") for natural pauses at tension moments
+- Sound like you're texting a friend who's also an anime fan, not reading a press release
+- Personal hooks: "I just saw this and...", "Bro, you're not ready", "Wait till you hear this"
+- NEVER say robotic phrases: "It has been announced", "We are excited to share", "In other news"
+- Replace marketing-speak: "smash subscribe" → "hit follow" / "tap subscribe" / "don't sleep on this channel"
+- React like a fan, not a reporter: "yo", "no way", "I'm dead", "this hits different"
 """.strip()
 
 
@@ -33,57 +33,110 @@ After the script, output EXACTLY this block:
 
 TITLE: Follow these RULES EXACTLY:
   - 45-65 characters total (counting "#Shorts" at the end)
-  - Format: [topic / tool / concept] [hook] #Shorts
-  - Topic name MUST appear in the first 30 characters
-  - MUST include one curiosity/value word: WHY, HOW, EXPLAINED, BEFORE, NEVER, ACTUALLY, REAL, BROKEN, INSANE, IGNORED, OVERRATED
+  - Format: [ANIME NAME] [hook claim or reaction] #Shorts
+  - Anime name MUST appear in the first 30 characters
+  - MUST include exactly one power word: HUGE, MASSIVE, SHOCKING, INSANE, BROKEN, COOKED, CRAZY, WILD, NUTS
   - "#Shorts" goes ONLY at the end, never at the start, exactly once
-  - NO emojis. NO three-caps-in-a-row spam.
-  GOOD examples:
-    ✓ "RAG explained in 60 seconds — what they got wrong #Shorts"
-    ✓ "Why MCP is about to change every AI app #Shorts"
-    ✓ "Cursor vs Windsurf — the honest comparison #Shorts"
-    ✓ "Claude Code in 60 seconds — agentic coding is here #Shorts"
-  BAD examples:
-    ✗ "AI is great #Shorts"               (no specifics, no hook)
-    ✗ "#Shorts intro to AI"               (Shorts at start, no value word)
-    ✗ "AI Tutorial 🤖🔥 #Shorts"           (emojis)
+  - NO emojis, NO multiple consecutive caps words, NO clickbait punctuation spam
+  GOOD examples (copy this style):
+    ✓ "Jujutsu Kaisen just dropped a MASSIVE Season 3 update #Shorts"
+    ✓ "Solo Leveling fans are losing it over this leak #Shorts"
+    ✓ "My Hero Academia's ending is BROKEN — here's why #Shorts"
+    ✓ "Demon Slayer Season 5 announcement is INSANE #Shorts"
+  BAD examples (NEVER do this):
+    ✗ "JJK #Shorts"                          (no hook, too short)
+    ✗ "#Shorts Anime News Today"             (Shorts at start, no anime)
+    ✗ "Witch Hat 🔥🔥 #Shorts"               (emojis)
+    ✗ "BREAKING HUGE MASSIVE NEWS!!! #Shorts" (clickbait spam)
 
-DESCRIPTION: [100-140 words, casual technical tone, expand on the concept,
-              include 2-3 relevant links if the topic has obvious official docs
-              (Anthropic, OpenAI, LangChain, etc.) — end with casual follow CTA]
-TAGS: [15 comma-separated tags — mix broad (AI, LLM, machine learning, ai engineer)
-       and specific (the actual topic/tool name, related concepts)]
-THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "RAG EXPLAINED", "MCP IS NEW",
-                 "CLAUDE CODE 101"]
-BANNER_TAG: [Pick ONE: NEW or HOT or EXPLAINER or TOOL or NEWS or BREAKING]
-SEARCH_TAGS: [8 hashtags starting with #: #AI #LLM #LangChain #ClaudeCode #Anthropic etc]
+DESCRIPTION: [80-120 words, casual tone matching the script, end with casual follow CTA]
+TAGS: [15 comma-separated tags, mix broad (anime, manga, otaku, anime 2026) and specific anime/character names]
+THUMBNAIL_TEXT: [2-4 ALL CAPS punchy words — e.g., "JJK SHOCKER", "MHA COOKED"]
+BANNER_TAG: [Pick ONE: BREAKING or LEAKED or HUGE or RUMOR or TRENDING]
+FOCUS_CHARACTERS: [Up to 4 comma-separated character names mentioned in the script. Empty if none.]
+SEARCH_TAGS: [8 hashtags starting with #]
 """.strip()
+
+
+# Emoji + clickbait spam stripper
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport
+    "\U0001F700-\U0001F77F"  # alchemical
+    "\U0001F900-\U0001F9FF"  # supplemental
+    "\U0001FA00-\U0001FA6F"  # extended-A
+    "\U0001FA70-\U0001FAFF"  # extended-B
+    "\U00002600-\U000026FF"  # misc symbols
+    "\U00002700-\U000027BF"  # dingbats
+    "]+",
+    flags=re.UNICODE,
+)
+
+POWER_WORDS = ['HUGE', 'MASSIVE', 'SHOCKING', 'INSANE', 'BROKEN',
+               'COOKED', 'CRAZY', 'WILD', 'NUTS']
+
+
+def _polish_title(raw_title, anime_name):
+    """Clean up Groq's title and enforce our rules. Returns final title."""
+    t = raw_title.strip()
+
+    # 1. Strip any quotation marks
+    t = t.strip('"\'')
+
+    # 2. Strip emojis
+    t = _EMOJI_RE.sub('', t)
+
+    # 3. Strip all #Shorts mentions (we re-add one at end)
+    t = re.sub(r'#\s*[Ss]horts?', '', t)
+
+    # 4. Collapse repeated punctuation/whitespace
+    t = re.sub(r'!{2,}', '!', t)
+    t = re.sub(r'\?{2,}', '?', t)
+    t = re.sub(r'\s+', ' ', t).strip(' -–—:|')
+
+    # 5. If anime name isn't in title, prepend it
+    if anime_name and anime_name.lower() not in t.lower():
+        t = f"{anime_name} {t}"
+
+    # 6. Truncate body so " #Shorts" fits within 65 chars
+    suffix = " #Shorts"
+    max_body = 65 - len(suffix)
+    if len(t) > max_body:
+        t = t[:max_body].rstrip(' .,;:!-–—')
+
+    # 7. If we still have no power word, log warning (don't force-insert
+    #    -- would read awkwardly; better to let Groq's title pass through)
+    has_power = any(w in t.upper() for w in POWER_WORDS)
+    if not has_power:
+        print(f"[script_generator] WARNING: title missing power word: {t!r}")
+
+    return f"{t}{suffix}"
 
 
 # ---------------------------------------------------------------------------
 # Per-format prompts
 # ---------------------------------------------------------------------------
 
-def _prompt_news_commentary(news):
-    return f"""You are an experienced AI engineer writing the daily Shorts script for "The AI Stack" — a channel teaching agentic AI, LLMs, and the modern AI stack to developers.
+def _prompt_news_commentary(anime_title, synopsis, news):
+    return f"""You are a 23-year-old anime YouTuber doing the daily Shorts script for "Fantasy Verse".
 
-TODAY'S NEWS:
-Headline: {news['title']}
-Context: {news['summary']}
-Source: {news['source']}
+TODAY'S STORY:
+Anime: {anime_title} (one of the most-watched anime right now)
+Quick context: {synopsis}
+Recent news: {news['title']}
+News details: {news['summary']}
 
-Write a 45-60 second take on this news that's informative AND has a point of view.
+Write a 30-50 second high-energy reaction video about this news.
 
 STRUCTURE:
-1. HOOK (5-8 words, 0-3 sec) — sharp claim or surprising frame
-   Examples: "Anthropic just changed how agents work.", "OpenAI's new release is more important than people think."
-2. THE NEWS (5-15 sec) — what happened, in plain English. One short paragraph.
-3. WHY IT MATTERS (15-40 sec) — 2-3 specific implications. What changes for developers?
-   What does it mean if you're building with LLMs today?
-4. CLOSING (40-55 sec) — a clear take + a question that invites engagement.
-   End with a casual subscribe ask.
+1. HOOK (5-8 words, 0-3 sec) — shocked reaction or hot take
+2. THE NEWS (5-15 sec) — what happened, one or two short sentences
+3. REACTION + DETAILS (15-40 sec) — your take, fan reactions, what it means
+4. CLOSING (40-50 sec) — the "so what" + a real question to drive comments
 
-LENGTH: 110-150 words.
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -91,25 +144,22 @@ LENGTH: 110-150 words.
 """
 
 
-def _prompt_concept_explainer(topic_title, topic_summary):
-    return f"""You are an AI engineer writing the daily concept-explainer Short for "The AI Stack".
+def _prompt_character_spotlight(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a character spotlight Short for "Fantasy Verse".
 
-TODAY'S CONCEPT:
-{topic_title}
-What it is: {topic_summary}
+TODAY'S ANIME (currently trending, one of the most-watched right now):
+{anime_title}
+Quick context: {synopsis}
 
-Explain this concept in 45-60 seconds in a way that makes a developer go "oh, that's actually useful."
+Pick ONE iconic character from this anime and break down why they're elite — power, personality, character arc, or a single legendary moment.
 
 STRUCTURE:
-1. HOOK (5-8 words, 0-3 sec) — bold claim or curiosity gap
-   Examples: "Most devs misunderstand RAG.", "MCP is the AI equivalent of USB-C."
-2. SIMPLE DEFINITION (5-15 sec) — one-sentence explanation a junior dev would understand
-3. CONCRETE EXAMPLE (15-40 sec) — show, don't tell. Walk through a tiny scenario
-   or compare two approaches (with vs without). Use specific names where natural.
-4. WHY YOU SHOULD CARE (40-55 sec) — when you'd reach for this in real code +
-   one closing line that lands. End with casual subscribe ask.
+1. HOOK (5-8 words) — bold claim about the character ("Gojo Satoru is anime's most overpowered character. Here's why.")
+2. WHO THEY ARE (5-15 sec) — quick intro
+3. WHY THEY'RE ELITE (15-40 sec) — 2-3 specific reasons with examples
+4. CLOSING (40-50 sec) — your hot take + ask viewers for their pick
 
-LENGTH: 110-150 words.
+LENGTH: 120-160 words (this gives ~50-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -117,24 +167,23 @@ LENGTH: 110-150 words.
 """
 
 
-def _prompt_tool_spotlight(topic_title, topic_summary):
-    return f"""You are an AI engineer writing the daily tool-spotlight Short for "The AI Stack".
+def _prompt_top_moments(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "Top 3 Moments" Short for "Fantasy Verse".
 
-TODAY'S TOOL:
-{topic_title}
-What it does: {topic_summary}
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
 
-Sell this tool to developers in 45-60 seconds — but honestly. Real benefits, one limitation.
+Pick the TOP 3 most shocking, hype, or emotional moments from this anime and rank them. Be specific with episode references where possible.
 
 STRUCTURE:
-1. HOOK (5-8 words, 0-3 sec) — claim or comparison
-   Examples: "Cursor isn't just VS Code with AI.", "Ollama runs Llama on your laptop in 60 seconds."
-2. WHAT IT IS (5-15 sec) — one sentence positioning + the main thing it replaces
-3. WHY IT'S GOOD (15-35 sec) — 2 concrete reasons devs love it
-4. ONE HONEST DOWNSIDE (35-45 sec) — credibility move — one limitation
-5. CLOSING (45-55 sec) — when you'd actually reach for it + casual subscribe ask
+1. HOOK (5-8 words) — "These 3 moments broke anime Twitter."
+2. NUMBER 3 (8 sec) — set up briefly, then the moment, your reaction
+3. NUMBER 2 (8 sec) — same pattern
+4. NUMBER 1 (12 sec) — bigger build, the moment, why it's #1
+5. CLOSING (5 sec) — ask viewers what they'd put at #1
 
-LENGTH: 110-150 words.
+LENGTH: 130-170 words (this gives ~55-70 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -142,24 +191,92 @@ LENGTH: 110-150 words.
 """
 
 
-def _prompt_certification(topic_title, topic_summary):
-    return f"""You are an AI engineer writing the daily certification/career Short for "The AI Stack".
+def _prompt_power_scaling(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a power-scaling debate Short for "Fantasy Verse".
 
-TODAY'S TOPIC:
-{topic_title}
-Context: {topic_summary}
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
 
-Give developers a 45-60 second roadmap or insight. Career angle. What to actually do this week.
+Set up a fan-favorite "who would win" matchup involving a character from this anime vs another iconic anime character. Argue ONE side with conviction, then ask viewers.
 
 STRUCTURE:
-1. HOOK (5-8 words, 0-3 sec) — value-driven claim
-   Examples: "The AWS AI cert opens more doors than people think.", "Most prompt engineer jobs are gone — here's what replaced them."
-2. THE CONTEXT (5-15 sec) — what this is, who it's for
-3. THE PATH OR TRUTH (15-40 sec) — concrete steps or honest assessment
-4. WHAT TO DO THIS WEEK (40-55 sec) — one specific action viewer can take now +
-   casual subscribe ask
+1. HOOK (5-8 words) — "Most fans get this matchup wrong."
+2. THE MATCHUP (5-10 sec) — set it up: "[Character A] vs [Character B]"
+3. THE ARGUMENT (15-35 sec) — 2-3 reasons why your pick wins
+4. CLOSING (40-50 sec) — concede one weakness for credibility, then ask "Who wins?"
 
-LENGTH: 110-150 words.
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_lore_drop(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a lore-deep-dive Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal ONE piece of lore, theory, or hidden detail that casual viewers usually miss. Could be foreshadowing, a name meaning, a Japanese cultural reference, a hidden manga panel detail, or a fan theory with real evidence.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "Most fans missed this detail in [anime]."
+2. SETUP (5-10 sec) — what you're about to reveal
+3. THE REVEAL (15-35 sec) — the detail itself + the evidence
+4. CLOSING (40-50 sec) — what it means for the story + ask if viewers caught it
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_manga_vs_anime(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "manga vs anime" comparison Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently trending):
+{anime_title}
+Quick context: {synopsis}
+
+Reveal 2-3 things the anime CHANGED or CUT from the manga. Be specific where possible. Take a clear stance on whether the anime did it better or the manga.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "The anime butchered this manga scene."
+2. CHANGE #1 (10 sec) — what was changed
+3. CHANGE #2 (10 sec) — what was changed
+4. (optional) CHANGE #3 (10 sec)
+5. CLOSING (5-10 sec) — your verdict + ask viewers which version they prefer
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def _prompt_why_trending(anime_title, synopsis):
+    return f"""You are a 23-year-old anime YouTuber making a "why everyone is watching this" Short for "Fantasy Verse".
+
+TODAY'S ANIME (currently the most-watched anime — viral right now):
+{anime_title}
+Quick context: {synopsis}
+
+Explain in fan-friendly terms why this anime is blowing up RIGHT NOW. Animation quality? Story twist? Character moment? Viral scene? Pick 2-3 concrete reasons.
+
+STRUCTURE:
+1. HOOK (5-8 words) — "If you're not watching [anime] yet, fix that."
+2. THE PITCH (5-15 sec) — quick what-it's-about for newcomers
+3. WHY IT'S HOT (15-40 sec) — 2-3 specific reasons it's trending
+4. CLOSING (40-50 sec) — where to start watching + ask if viewers are caught up
+
+LENGTH: 125-165 words (this gives ~55-65 second runtime — Shorts retention sweet spot).
 
 {HUMAN_VOICE_RULES}
 
@@ -168,40 +285,14 @@ LENGTH: 110-150 words.
 
 
 PROMPT_DISPATCH = {
-    'news_commentary':   None,  # special: takes news dict
-    'concept_explainer': _prompt_concept_explainer,
-    'tool_spotlight':    _prompt_tool_spotlight,
-    'certification':     _prompt_certification,
+    'news_commentary':     _prompt_news_commentary,
+    'character_spotlight': _prompt_character_spotlight,
+    'top_moments':         _prompt_top_moments,
+    'power_scaling':       _prompt_power_scaling,
+    'lore_drop':           _prompt_lore_drop,
+    'manga_vs_anime':      _prompt_manga_vs_anime,
+    'why_trending':        _prompt_why_trending,
 }
-
-
-# ---------------------------------------------------------------------------
-# Title polish
-# ---------------------------------------------------------------------------
-
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F300-\U0001F5FF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF"
-    "\U0001F700-\U0001F77F\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F"
-    "\U0001FA70-\U0001FAFF\U00002600-\U000026FF\U00002700-\U000027BF"
-    "]+",
-    flags=re.UNICODE,
-)
-
-
-def _polish_title(raw_title):
-    t = raw_title.strip().strip('"\'')
-    t = _EMOJI_RE.sub('', t)
-    t = re.sub(r'#\s*[Ss]horts?', '', t)
-    t = re.sub(r'!{2,}', '!', t)
-    t = re.sub(r'\?{2,}', '?', t)
-    t = re.sub(r'\s+', ' ', t).strip(' -–—:|')
-
-    suffix = " #Shorts"
-    max_body = 65 - len(suffix)
-    if len(t) > max_body:
-        t = t[:max_body].rstrip(' .,;:!-–—')
-    return f"{t}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -209,23 +300,34 @@ def _polish_title(raw_title):
 # ---------------------------------------------------------------------------
 
 def generate_script_and_metadata(topic):
+    """
+    Args:
+        topic = {'anime': {...mal entry...}, 'news': {...}|None, 'content_type': str}
+    """
     client = Groq(api_key=os.environ['GROQ_API_KEY'])
-    content_type = topic.get('content_type', 'concept_explainer')
+
+    anime       = topic['anime']
+    news        = topic.get('news')
+    content_type = topic.get('content_type', 'why_trending')
+
+    anime_title = anime.get('title_english') or anime.get('title') or 'Anime'
+    synopsis    = (anime.get('synopsis') or '')[:600]
+
+    builder = PROMPT_DISPATCH.get(content_type, _prompt_why_trending)
 
     if content_type == 'news_commentary':
-        prompt = _prompt_news_commentary(topic['news'])
+        prompt = builder(anime_title, synopsis, news)
     else:
-        builder = PROMPT_DISPATCH.get(content_type) or _prompt_concept_explainer
-        prompt = builder(topic['topic_title'], topic['topic_summary'])
+        prompt = builder(anime_title, synopsis)
 
     print(f"[script_generator] Content type: {content_type}")
-    print(f"[script_generator] Topic: {topic.get('topic_title', '<news>')}")
+    print(f"[script_generator] Anime: {anime_title}")
 
     response = client.chat.completions.create(
         model='llama-3.3-70b-versatile',
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=0.85,
-        max_tokens=1800,
+        temperature=0.9,
+        max_tokens=1600,
     )
 
     raw = response.choices[0].message.content
@@ -238,27 +340,36 @@ def generate_script_and_metadata(topic):
     script_match = re.split(r'\nTITLE:', raw, maxsplit=1)
     script       = script_match[0].strip()
 
-    title          = _polish_title(extract('TITLE'))
+    title          = extract('TITLE')
     description    = extract('DESCRIPTION')
     tags_raw       = extract('TAGS')
     tags           = [t.strip() for t in tags_raw.split(',') if t.strip()]
     thumbnail_text = extract('THUMBNAIL_TEXT')
-    banner_tag     = (extract('BANNER_TAG') or
-                      ('NEWS' if content_type == 'news_commentary' else 'EXPLAINER')).upper().strip()
+    banner_tag     = extract('BANNER_TAG') or ('BREAKING' if content_type == 'news_commentary' else 'TRENDING')
+    focus_chars_raw = extract('FOCUS_CHARACTERS')
+    focus_characters = [c.strip() for c in focus_chars_raw.split(',') if c.strip()]
     search_tags    = extract('SEARCH_TAGS')
+
+    # Strict title polish: strip emojis/junk, ensure anime name first,
+    # truncate to 65 chars + " #Shorts" at end exactly once.
+    title = _polish_title(title, anime_title)
 
     full_description = f"{description}\n\n{search_tags}"
 
     print(f"[script_generator] Script: {len(script.split())} words")
     print(f"[script_generator] Title: {title}")
     print(f"[script_generator] Banner: {banner_tag}")
+    if focus_characters:
+        print(f"[script_generator] Characters: {', '.join(focus_characters)}")
 
     return {
-        'script':         script,
-        'title':          title,
-        'description':    full_description,
-        'tags':           tags,
-        'thumbnail_text': thumbnail_text,
-        'banner_tag':     banner_tag,
-        'content_type':   content_type,
+        'script':           script,
+        'title':            title,
+        'description':      full_description,
+        'tags':             tags,
+        'thumbnail_text':   thumbnail_text,
+        'banner_tag':       banner_tag.upper().strip(),
+        'focus_anime':      anime_title,
+        'focus_characters': focus_characters,
+        'content_type':     content_type,
     }

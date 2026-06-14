@@ -1,0 +1,63 @@
+name: Extra Time Match Monitor
+
+on:
+  schedule:
+    # Every 30 minutes — checks for matches that just hit half-time / full-time
+    # and posts an instant reaction Short. Does nothing when no match events.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# Needed so the workflow can commit the posted-events state file back
+permissions:
+  contents: write
+
+# Prevent overlapping runs (a video render can take several minutes)
+concurrency:
+  group: match-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-liberation fonts-noto-core
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run match monitor
+        env:
+          GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
+          PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_CLIENT_SECRETS: ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
+          YOUTUBE_REFRESH_TOKEN:  ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          FOOTBALL_DATA_API_KEY:  ${{ secrets.FOOTBALL_DATA_API_KEY }}
+        working-directory: scripts
+        run: python match_monitor.py
+
+      - name: Commit updated state
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/posted_events.json)" ]; then
+            git add data/posted_events.json
+            git commit -m "chore: update posted match events [skip ci]"
+            git push
+          else
+            echo "No state change to commit."
+          fi

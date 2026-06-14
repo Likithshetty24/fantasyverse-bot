@@ -19,16 +19,21 @@ from moviepy.editor import AudioFileClip
 # Tempos lowered from ~1.32 to ~1.22 so videos are longer (~50-65 sec)
 # and the voice sounds less rushed / more natural.
 VOICE_PROFILES = [
-    {'name': 'US Hype Bro',     'tld': 'com',    'tempo': 1.24, 'pitch': 1.00},
-    {'name': 'UK Calm Host',    'tld': 'co.uk',  'tempo': 1.18, 'pitch': 0.96},
-    {'name': 'AU Energetic',    'tld': 'com.au', 'tempo': 1.28, 'pitch': 1.03},
-    {'name': 'India Smooth',    'tld': 'co.in',  'tempo': 1.20, 'pitch': 0.98},
-    {'name': 'Canada Chill',    'tld': 'ca',     'tempo': 1.22, 'pitch': 1.01},
-    {'name': 'Ireland Punchy',  'tld': 'ie',     'tempo': 1.26, 'pitch': 1.02},
-    {'name': 'ZA Deep',         'tld': 'co.za',  'tempo': 1.20, 'pitch': 0.94},
+    {'name': 'US Hype Bro',     'tld': 'com',    'tempo': 1.12, 'pitch': 1.00},
+    {'name': 'UK Calm Host',    'tld': 'co.uk',  'tempo': 1.08, 'pitch': 0.96},
+    {'name': 'AU Energetic',    'tld': 'com.au', 'tempo': 1.15, 'pitch': 1.03},
+    {'name': 'India Smooth',    'tld': 'co.in',  'tempo': 1.10, 'pitch': 0.98},
+    {'name': 'Canada Chill',    'tld': 'ca',     'tempo': 1.12, 'pitch': 1.01},
+    {'name': 'Ireland Punchy',  'tld': 'ie',     'tempo': 1.14, 'pitch': 1.02},
+    {'name': 'ZA Deep',         'tld': 'co.za',  'tempo': 1.08, 'pitch': 0.94},
 ]
 
 SAMPLE_RATE = 24000  # gTTS native rate
+
+# Hard minimum video length (user requirement). If the rendered voiceover
+# comes out shorter than this, we slow it down (atempo, pitch-preserving)
+# to stretch it up to the floor — so every video is at least ~50 sec.
+MIN_DURATION_SEC = 50.0
 
 
 def _pick_voice():
@@ -84,6 +89,29 @@ def generate_voiceover(text, audio_path):
     clip = AudioFileClip(audio_path)
     duration = clip.duration
     clip.close()
-
     print(f"[tts_generator] Voiceover: {duration:.1f}s")
+
+    # Enforce the minimum length by stretching if the clip is too short.
+    if duration < MIN_DURATION_SEC:
+        stretch = max(0.80, duration / MIN_DURATION_SEC)  # atempo floor 0.8
+        print(f"[tts_generator] Under {MIN_DURATION_SEC:.0f}s — stretching "
+              f"(atempo={stretch:.3f})")
+        stretched = audio_path.replace('.mp3', '_stretched.mp3')
+        cmd = [
+            'ffmpeg', '-y', '-i', audio_path,
+            '-af', f'atempo={stretch:.3f}',
+            '-codec:a', 'libmp3lame', '-qscale:a', '2',
+            stretched,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and os.path.exists(stretched):
+            os.replace(stretched, audio_path)
+            clip = AudioFileClip(audio_path)
+            duration = clip.duration
+            clip.close()
+            print(f"[tts_generator] Stretched voiceover: {duration:.1f}s")
+        else:
+            print(f"[tts_generator] Stretch failed, keeping original: "
+                  f"{result.stderr[-200:]}")
+
     return duration

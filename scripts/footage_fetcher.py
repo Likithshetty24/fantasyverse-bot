@@ -191,21 +191,32 @@ def fetch_footage(image_subject, output_dir, pexels_key=None,
         return False
 
     TEAMS = {'argentina', 'france', 'brazil', 'england', 'spain', 'germany',
-             'portugal', 'netherlands', 'italy', 'croatia'}
+             'portugal', 'netherlands', 'italy', 'croatia', 'morocco',
+             'usa', 'mexico', 'canada', 'japan', 'south korea', 'uruguay',
+             'colombia', 'belgium', 'switzerland', 'senegal'}
 
-    # ---- 1. Real imagery for a named subject ----
-    if image_subject:
-        if image_subject.lower() in TEAMS:
-            for url in _sportsdb_team_images(image_subject):
+    # Normalize subject(s) — accept a single name or a list (match = 2 teams)
+    if isinstance(image_subject, (list, tuple)):
+        subjects = [s for s in image_subject if s]
+    else:
+        subjects = [image_subject] if image_subject else []
+
+    # ---- 1. Real imagery for each named subject (players + teams) ----
+    for subj in subjects:
+        if idx >= target_count:
+            break
+        if subj.lower() in TEAMS:
+            for url in _sportsdb_team_images(subj):
                 save(url, 'team', timeout=20)
         else:
-            for url in _sportsdb_player_images(image_subject):
+            for url in _sportsdb_player_images(subj):
                 save(url, 'player', timeout=20)
         time.sleep(0.3)
 
     # ---- 2. Pollinations football scenes ----
+    prompt_subject = subjects[0] if subjects else ''
     base_seed = abs(hash(rng_seed or '')) % (2**31) if rng_seed else None
-    for i, prompt in enumerate(_build_prompts(image_subject, count=target_count)):
+    for i, prompt in enumerate(_build_prompts(prompt_subject, count=target_count)):
         if idx >= target_count:
             break
         seed = (base_seed + i) % (2**31) if base_seed is not None else None

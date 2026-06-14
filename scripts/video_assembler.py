@@ -48,6 +48,10 @@ PILL_DARK   = (14, 30, 22)
 FONT_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 FONT_REGULAR = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 
+# Channel name — shown ONLY on the outro card, nowhere else in the video.
+# Change this one line if your channel is named differently.
+CHANNEL_NAME = "Fantasy Verse"
+
 
 def _font(path, size):
     try:
@@ -113,11 +117,9 @@ def add_overlay(frame_array, banner_tag="WORLD CUP"):
     img  = Image.fromarray(frame_array)
     draw = ImageDraw.Draw(img)
 
-    # Top-left channel mark
-    font_brand = _font(FONT_BOLD, 32)
-    draw.text((32, 34), "EXTRA TIME", fill=(0, 0, 0), font=font_brand)
-    draw.text((30, 32), "EXTRA TIME", fill=TEXT_COLOR, font=font_brand)
-    draw.rectangle([30, 70, 30 + 120, 74], fill=GOLD)
+    # NOTE: No channel name/watermark on content frames (user request).
+    # Only a news-style content pill in the top-right — that's a content
+    # tag (WORLD CUP / GOAL / BREAKING), not channel branding.
 
     # Top-right content pill
     if banner_tag:
@@ -169,7 +171,8 @@ def flash_frame(duration=0.04):
 # Intro / Outro
 # ---------------------------------------------------------------------------
 
-def create_intro_card(duration=1.5):
+def create_intro_card(banner_tag="WORLD CUP", duration=1.3):
+    """Neutral hook card — NO channel name. Shows the content tag + year."""
     img  = Image.new('RGB', (WIDTH, HEIGHT), BG_DARK)
     draw = ImageDraw.Draw(img)
 
@@ -178,14 +181,14 @@ def create_intro_card(duration=1.5):
         shade = 22 if (j // 120) % 2 == 0 else 14
         draw.rectangle([0, j, WIDTH, j + 120], fill=(8, shade + 10, shade))
 
-    font_big = _font(FONT_BOLD, 140)
-    font_sub = _font(FONT_REGULAR, 50)
+    font_big = _font(FONT_BOLD, 120)
+    font_sub = _font(FONT_BOLD, 60)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 70), "EXTRA",  fill=GOLD, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 70), "TIME",   fill=GOLD, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 200), "daily football", fill=TEXT_COLOR, font=font_sub, anchor="mm")
+    tag = (banner_tag or "WORLD CUP").upper()
+    draw.text((WIDTH // 2, HEIGHT // 2 - 40), tag,      fill=GOLD,       font=font_big, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 70), "2026",   fill=TEXT_COLOR, font=font_sub, anchor="mm")
 
-    draw.rectangle([WIDTH // 2 - 200, HEIGHT // 2 + 250, WIDTH // 2 + 200, HEIGHT // 2 + 254], fill=GOLD)
+    draw.rectangle([WIDTH // 2 - 200, HEIGHT // 2 + 130, WIDTH // 2 + 200, HEIGHT // 2 + 134], fill=GOLD)
     return ImageClip(np.array(img)).set_duration(duration).fadein(0.25).fadeout(0.2)
 
 
@@ -196,10 +199,12 @@ def create_outro_card(duration=2.5):
     font_big = _font(FONT_BOLD, 80)
     font_med = _font(FONT_BOLD, 56)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 190), "WANT MORE?",      fill=TEXT_COLOR, font=font_big, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 80),  "FOLLOW for daily", fill=GOLD, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 10),  "football & World Cup", fill=GOLD, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 130), "EXTRA TIME",       fill=TEXT_COLOR, font=font_med, anchor="mm")
+    font_brand = _font(FONT_BOLD, 72)
+
+    draw.text((WIDTH // 2, HEIGHT // 2 - 180), "SUBSCRIBE TO",    fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 70),  CHANNEL_NAME.upper(), fill=GOLD,    font=font_brand, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 80),  "for daily football", fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 160), "& World Cup news",   fill=TEXT_COLOR, font=font_med, anchor="mm")
 
     return ImageClip(np.array(img)).set_duration(duration).fadein(0.3).fadeout(0.3)
 
@@ -220,8 +225,9 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP"):
     else:
         backgrounds = [add_overlay(make_gradient_background(), banner_tag)]
 
-    intro_dur = 1.5
+    intro_dur = 1.3
     outro_dur = 2.5
+    # Content fills the voiceover; intro overlaps slightly, outro adds tail.
     content_dur = max(total_duration - intro_dur + 0.5, 5.0)
 
     content_clips = []
@@ -251,7 +257,7 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP"):
         current_t += clip_dur
         shot_idx += 1
 
-    intro = create_intro_card(intro_dur)
+    intro = create_intro_card(banner_tag, intro_dur)
     outro = create_outro_card(outro_dur)
 
     content = CompositeVideoClip(content_clips, size=(WIDTH, HEIGHT)).set_duration(content_dur)

@@ -67,7 +67,7 @@ STRUCTURE:
 3. YOUR TAKE (15-40 sec) — 2-3 points, why it matters, what fans are saying
 4. CLOSING (40-55 sec) — a verdict + a question that starts a debate. Casual follow ask.
 
-LENGTH: 120-160 words.
+LENGTH: 190-240 words. This is important — the video must run at least 50 seconds, so write a full, rich script. Pack in detail, specifics, and real opinion. Do not pad with filler, but do not cut it short either.
 
 {HUMAN_VOICE_RULES}
 
@@ -98,7 +98,7 @@ STRUCTURE:
 3. THE GOODS (15-40 sec) — 2-3 specific beats: players, stats, moments, with real opinion
 4. CLOSING (40-55 sec) — a verdict + a debate-starting question. Casual follow ask.
 
-LENGTH: 120-160 words.
+LENGTH: 190-240 words. This is important — the video must run at least 50 seconds, so write a full, rich script. Pack in detail, specifics, and real opinion. Do not pad with filler, but do not cut it short either.
 
 {HUMAN_VOICE_RULES}
 
@@ -132,6 +132,82 @@ def _polish_title(raw_title, subject=''):
     if len(t) > max_body:
         t = t[:max_body].rstrip(' .,;:!-–—')
     return f"{t}{suffix}"
+
+
+def _prompt_match_news(match, phase):
+    """phase = 'HALF-TIME' or 'FULL-TIME'."""
+    home = match['home']
+    away = match['away']
+    hs   = match['home_score']
+    as_  = match['away_score']
+    events = match.get('events_text', '')
+    return f"""You are a passionate football YouTuber writing an instant {phase} reaction Short for "Fantasy Verse".
+
+MATCH: {home} {hs} - {as_} {away}  ({phase})
+{('Key events: ' + events) if events else ''}
+
+Write a 50-60 second {phase} reaction. This is a NEWS reaction video — fast, current, opinionated. Lean into talking points and controversy (refereeing calls, big misses, tactical decisions, standout or underperforming players) the way football Twitter does after a match.
+
+STRUCTURE:
+1. HOOK (5-8 words) — the headline of this {phase.lower()}
+2. THE SCORE & STORY (10-15 sec) — what's happened so far / final result
+3. TALKING POINTS (20-35 sec) — 2-3 things people are arguing about. Controversy, standout players, what went wrong/right
+4. CLOSING (45-55 sec) — your verdict / what to watch {'in the second half' if phase == 'HALF-TIME' else 'next'} + a debate-starting question. Casual follow ask.
+
+LENGTH: 190-240 words (video must be at least 50 seconds).
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
+def generate_match_news(match, phase):
+    """
+    Generate a HT/FT reaction video's script + metadata.
+    match dict: home, away, home_score, away_score, events_text (optional)
+    phase: 'HALF-TIME' or 'FULL-TIME'
+    """
+    client = Groq(api_key=os.environ['GROQ_API_KEY'])
+    prompt = _prompt_match_news(match, phase)
+
+    print(f"[script_generator] Match news: {match['home']} vs {match['away']} ({phase})")
+
+    response = client.chat.completions.create(
+        model='llama-3.3-70b-versatile',
+        messages=[{'role': 'user', 'content': prompt}],
+        temperature=0.85,
+        max_tokens=1800,
+    )
+    raw = response.choices[0].message.content
+
+    def extract(label):
+        pattern = rf'^{label}:\s*(.+?)(?=\n[A-Z_]+:|$)'
+        m = re.search(pattern, raw, re.MULTILINE | re.DOTALL)
+        return m.group(1).strip() if m else ''
+
+    script = re.split(r'\nTITLE:', raw, maxsplit=1)[0].strip()
+
+    subject = f"{match['home']} vs {match['away']}"
+    title = _polish_title(extract('TITLE'), '')
+    description = extract('DESCRIPTION')
+    tags = [t.strip() for t in extract('TAGS').split(',') if t.strip()]
+    thumbnail_text = extract('THUMBNAIL_TEXT') or f"{match['home_score']}-{match['away_score']}"
+    banner_tag = (extract('BANNER_TAG') or
+                  ('HALF TIME' if phase == 'HALF-TIME' else 'FULL TIME')).upper().strip()
+    search_tags = extract('SEARCH_TAGS')
+
+    return {
+        'script':         script,
+        'title':          title,
+        'description':    f"{description}\n\n{search_tags}",
+        'tags':           tags,
+        'thumbnail_text': thumbnail_text,
+        'banner_tag':     banner_tag,
+        # two real subjects for footage = both teams
+        'image_subject':  [match['home'], match['away']],
+        'content_type':   'match_news',
+    }
 
 
 def generate_script_and_metadata(topic):

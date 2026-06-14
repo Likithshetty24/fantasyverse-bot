@@ -1,8 +1,10 @@
-name: Fantasy Verse Daily Anime Short
+name: Extra Time Daily Football Short
 
 on:
   schedule:
-    - cron: '0 20 * * *'   # 8 PM UTC = peak YouTube traffic
+    # 17:00 UTC — evening in Europe, afternoon in Americas, late eve in India.
+    # Good window for football audiences during the World Cup.
+    - cron: '0 17 * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,7 +30,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Fantasy Verse Bot
+      - name: Run Extra Time Bot
         env:
           GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}

@@ -1,94 +1,128 @@
 """
-trend_picker.py
-Picks today's video topic by combining "what's trending right now"
-with "is there fresh news about it".
+trend_picker.py — Extra Time (football / FIFA World Cup)
+Picks today's football topic by combining live buzz with a curated pool.
 
-News sources (all free, no keys):
-  - Anime News Network RSS  (slow but authoritative)
-  - Crunchyroll News RSS    (industry-direct, often faster than ANN)
-  - Reddit r/anime hot      (community-curated, fastest signal)
+News sources (all free):
+  - Reddit r/soccer hot       (fastest community buzz)
+  - BBC Sport football RSS    (authoritative headlines)
+  - The Guardian football RSS (authoritative headlines)
 
-Strategy:
-  1. Pull top ~25 currently-airing anime from Jikan
-  2. Pull pooled news from 3 sources
-  3. Cross-reference: trending anime with fresh news = best content
-  4. Otherwise rotate through top 7 trending anime + content type rotation
+Content types:
+  - news_commentary    when fresh football news is hot
+  - player_spotlight   star players (World Cup focus)
+  - top_moments        greatest goals / matches / moments
+  - team_focus         national teams + their World Cup story
+  - records_stats      "did you know" records and numbers
+  - match_hype         World Cup 2026 fixtures / predictions
 """
 
 import re
-import time
+import random
 import requests
 import feedparser
 from html import unescape
 from datetime import datetime
 
-# ---- API / feed endpoints -----------------------------------------------
-JIKAN_SEASON_NOW = "https://api.jikan.moe/v4/seasons/now"
-JIKAN_TOP_AIRING = "https://api.jikan.moe/v4/top/anime"
-ANN_RSS          = "https://www.animenewsnetwork.com/news/rss.xml"
-CRUNCHY_RSS      = "https://www.crunchyroll.com/news/rss/anime"
-REDDIT_HOT       = "https://www.reddit.com/r/anime/hot.json"
+REDDIT_SOCCER = "https://www.reddit.com/r/soccer/hot.json"
+BBC_RSS       = "https://feeds.bbci.co.uk/sport/football/rss.xml"
+GUARDIAN_RSS  = "https://www.theguardian.com/football/rss"
 
-JIKAN_DELAY      = 0.4
-USER_AGENT       = "FantasyVerseBot/1.0 (anime news aggregator)"
+USER_AGENT    = "ExtraTimeBot/1.0 (football shorts aggregator)"
 
-EXCLUDE_NEWS_KEYWORDS = [
-    'review', 'encyclopedia', 'preview guide',
-    'this week in anime', 'shelf life', 'daily streaming reviews',
-]
+EXCLUDE_NEWS_KEYWORDS = ['quiz', 'crossword', 'podcast', 'how to watch', 'tv guide']
 
-# Evergreen content formats — rotated when no trending anime has news today
+
 CONTENT_TYPES = [
-    'character_spotlight',
+    'player_spotlight',
     'top_moments',
-    'power_scaling',
-    'lore_drop',
-    'manga_vs_anime',
-    'why_trending',
+    'match_hype',
+    'team_focus',
+    'records_stats',
+    'player_spotlight',
+    'top_moments',
 ]
 
 
 # ---------------------------------------------------------------------------
-# Trending anime fetch (Jikan)
+# Curated topic pool — heavily World Cup 2026 focused, football-general overall
+# Each entry: (content_type, title, summary, image_subject)
+#   image_subject -> a player or team name we can look up real images for,
+#                    or '' for a generic football aesthetic
 # ---------------------------------------------------------------------------
 
-def _fetch_seasonal_top():
-    try:
-        r = requests.get(JIKAN_SEASON_NOW,
-                         params={'limit': 25, 'sfw': 'true'}, timeout=15)
-        r.raise_for_status()
-        items = r.json().get('data', [])
-        items.sort(key=lambda x: x.get('members', 0), reverse=True)
-        return items[:15]
-    except Exception as e:
-        print(f"[trend_picker] Seasonal top fetch failed: {e}")
-        return []
+CURATED_TOPICS = [
+    # ---- Star player spotlights ----
+    ('player_spotlight', 'Lionel Messi at the 2026 World Cup',
+     'the GOAT debate, his final World Cup, and what Argentina needs from him', 'Lionel Messi'),
+    ('player_spotlight', 'Kylian Mbappe',
+     'the fastest man in football and France\'s talisman chasing a second World Cup', 'Kylian Mbappe'),
+    ('player_spotlight', 'Erling Haaland',
+     'the goal machine and why Norway missing the World Cup is football\'s biggest what-if', 'Erling Haaland'),
+    ('player_spotlight', 'Jude Bellingham',
+     'England\'s golden boy and the midfielder carrying a nation\'s hopes', 'Jude Bellingham'),
+    ('player_spotlight', 'Vinicius Junior',
+     'Brazil\'s electric winger and the favourite for the Golden Ball', 'Vinicius Junior'),
+    ('player_spotlight', 'Lamine Yamal',
+     'the teenage sensation lighting up world football for Spain', 'Lamine Yamal'),
+    ('player_spotlight', 'Cristiano Ronaldo',
+     'the legend\'s last dance and whether Portugal can send him out a champion', 'Cristiano Ronaldo'),
+    ('player_spotlight', 'Rodri',
+     'the Ballon d\'Or winning anchor that makes Spain tick', 'Rodri'),
 
+    # ---- Top moments ----
+    ('top_moments', 'Greatest World Cup goals ever',
+     'from Maradona\'s solo run to Messi\'s magic — the goals that defined the tournament', ''),
+    ('top_moments', 'Most shocking World Cup upsets',
+     'Saudi Arabia beating Argentina, Germany crashing out — football\'s biggest shocks', ''),
+    ('top_moments', 'Greatest World Cup finals',
+     'the most dramatic finals in history and what made them unforgettable', ''),
+    ('top_moments', 'Iconic World Cup celebrations',
+     'the celebrations that became legendary moments in football history', ''),
+    ('top_moments', 'Best World Cup saves ever',
+     'Gordon Banks to the modern era — keepers who defied physics', ''),
 
-def _fetch_top_airing():
-    try:
-        r = requests.get(JIKAN_TOP_AIRING,
-                         params={'filter': 'airing', 'limit': 15}, timeout=15)
-        r.raise_for_status()
-        return r.json().get('data', [])
-    except Exception as e:
-        print(f"[trend_picker] Top airing fetch failed: {e}")
-        return []
+    # ---- Match hype / World Cup 2026 ----
+    ('match_hype', 'World Cup 2026 favourites',
+     'Argentina, France, Brazil, Spain, England — who actually wins it', ''),
+    ('match_hype', 'World Cup 2026 dark horses',
+     'the nations nobody is talking about that could go far', ''),
+    ('match_hype', 'The biggest World Cup 2026 group stage clashes',
+     'the must-watch fixtures of the group stage', ''),
+    ('match_hype', 'Why the 2026 World Cup is the biggest ever',
+     '48 teams, 3 host nations, 104 matches — everything that changed', ''),
+    ('match_hype', 'World Cup 2026 Golden Boot race',
+     'the strikers most likely to finish top scorer', ''),
 
+    # ---- Team focus ----
+    ('team_focus', 'Argentina at the 2026 World Cup',
+     'the defending champions and whether they can go back to back', 'Argentina'),
+    ('team_focus', 'France national team',
+     'arguably the deepest squad in the world and the team to beat', 'France'),
+    ('team_focus', 'Brazil national team',
+     'five-time champions desperate to end a 24-year wait', 'Brazil'),
+    ('team_focus', 'England national team',
+     'football\'s nearly-men and whether this is finally their year', 'England'),
+    ('team_focus', 'Spain national team',
+     'the Euro champions playing the best football on the planet', 'Spain'),
+    ('team_focus', 'Germany national team',
+     'the four-time winners rebuilding after back-to-back group exits', 'Germany'),
 
-def _merge_trending(seasonal, airing):
-    seen, merged = set(), []
-    for item in seasonal + airing:
-        mid = item.get('mal_id')
-        if not mid or mid in seen:
-            continue
-        seen.add(mid)
-        merged.append(item)
-    return merged
+    # ---- Records & stats ----
+    ('records_stats', 'Most World Cup goals of all time',
+     'Klose, Ronaldo, Muller — the all-time top scorers and who can catch them', ''),
+    ('records_stats', 'Players with the most World Cup appearances',
+     'the iron men who kept showing up tournament after tournament', ''),
+    ('records_stats', 'Youngest and oldest World Cup scorers',
+     'the record-breakers at both ends of the age scale', ''),
+    ('records_stats', 'Countries that have won the most World Cups',
+     'Brazil leads with five — the full ranking and the nearly men', ''),
+    ('records_stats', 'Fastest goals in World Cup history',
+     'the strikes that beat the clock within seconds of kickoff', ''),
+]
 
 
 # ---------------------------------------------------------------------------
-# News fetchers (3 sources)
+# News fetchers
 # ---------------------------------------------------------------------------
 
 def _clean_text(html):
@@ -101,70 +135,25 @@ def _is_news_worthy(title):
     return not any(kw in tl for kw in EXCLUDE_NEWS_KEYWORDS)
 
 
-def _fetch_ann(limit=20):
+def _fetch_reddit(limit=20):
     try:
-        feed = feedparser.parse(ANN_RSS)
-        items = []
-        for entry in feed.entries[:limit]:
-            title = entry.get('title', '').strip()
-            if not title or not _is_news_worthy(title):
-                continue
-            items.append({
-                'title':   title,
-                'summary': _clean_text(entry.get('summary', ''))[:280],
-                'link':    entry.get('link', ''),
-                'source':  'ann',
-            })
-        return items
-    except Exception as e:
-        print(f"[trend_picker] ANN fetch failed: {e}")
-        return []
-
-
-def _fetch_crunchyroll(limit=20):
-    try:
-        feed = feedparser.parse(CRUNCHY_RSS)
-        items = []
-        for entry in feed.entries[:limit]:
-            title = entry.get('title', '').strip()
-            if not title or not _is_news_worthy(title):
-                continue
-            items.append({
-                'title':   title,
-                'summary': _clean_text(entry.get('summary', ''))[:280],
-                'link':    entry.get('link', ''),
-                'source':  'crunchyroll',
-            })
-        return items
-    except Exception as e:
-        print(f"[trend_picker] Crunchyroll fetch failed: {e}")
-        return []
-
-
-def _fetch_reddit(limit=25):
-    try:
-        r = requests.get(
-            REDDIT_HOT,
-            params={'limit': limit, 't': 'day'},
-            headers={'User-Agent': USER_AGENT},
-            timeout=15,
-        )
+        r = requests.get(REDDIT_SOCCER, params={'limit': limit, 't': 'day'},
+                         headers={'User-Agent': USER_AGENT}, timeout=15)
         r.raise_for_status()
         items = []
         for child in r.json().get('data', {}).get('children', []):
             d = child.get('data', {}) or {}
             flair = (d.get('link_flair_text') or '').lower()
-            # Keep only news / announcement / clip posts (community curates well)
-            if not any(kw in flair for kw in ['news', 'announce', 'official', 'video']):
-                continue
-            title = d.get('title', '').strip()
+            title = (d.get('title') or '').strip()
             if not title or not _is_news_worthy(title):
                 continue
+            # r/soccer flairs: News, Media, Stats, Transfers, Discussion, etc.
             items.append({
                 'title':   title,
                 'summary': (d.get('selftext') or '')[:280],
                 'link':    'https://reddit.com' + d.get('permalink', ''),
                 'source':  'reddit',
+                'flair':   flair,
             })
         return items
     except Exception as e:
@@ -172,55 +161,86 @@ def _fetch_reddit(limit=25):
         return []
 
 
-def _fetch_recent_news(max_items=40):
-    """Pool news from all 3 sources, dedupe loosely by title prefix."""
-    ann_items = _fetch_ann(limit=20)
-    cr_items  = _fetch_crunchyroll(limit=15)
-    rd_items  = _fetch_reddit(limit=25)
-    print(f"[trend_picker] News sources: "
-          f"ANN={len(ann_items)} Crunchyroll={len(cr_items)} Reddit={len(rd_items)}")
+def _fetch_rss(url, source_name, limit=15):
+    try:
+        feed = feedparser.parse(url)
+        items = []
+        for entry in feed.entries[:limit]:
+            title = entry.get('title', '').strip()
+            if not title or not _is_news_worthy(title):
+                continue
+            items.append({
+                'title':   title,
+                'summary': _clean_text(entry.get('summary', ''))[:280],
+                'link':    entry.get('link', ''),
+                'source':  source_name,
+                'flair':   '',
+            })
+        return items
+    except Exception as e:
+        print(f"[trend_picker] {source_name} RSS failed: {e}")
+        return []
 
-    pool = ann_items + cr_items + rd_items
-    # Dedupe by first 35 chars of lowercase title
+
+def _fetch_all_news():
+    pool = []
+    pool += _fetch_reddit(limit=20)
+    pool += _fetch_rss(BBC_RSS, 'bbc', limit=15)
+    pool += _fetch_rss(GUARDIAN_RSS, 'guardian', limit=15)
+
+    by_source = {}
+    for item in pool:
+        by_source[item['source']] = by_source.get(item['source'], 0) + 1
+    print(f"[trend_picker] News sources: " +
+          ", ".join(f"{k}={v}" for k, v in by_source.items()))
+
     seen, unique = set(), []
     for item in pool:
-        key = re.sub(r'\W+', '', item['title'].lower())[:35]
+        key = re.sub(r'\W+', '', item['title'].lower())[:40]
         if key in seen:
             continue
         seen.add(key)
         unique.append(item)
-    print(f"[trend_picker] Unique news items: {len(unique)}")
-    return unique[:max_items]
+    return unique
 
 
 # ---------------------------------------------------------------------------
-# Cross-reference: trending anime ↔ recent headline
+# Score news relevance — World Cup + big names rank higher
 # ---------------------------------------------------------------------------
 
-def _alt_titles(anime):
-    titles = []
-    for key in ('title', 'title_english', 'title_japanese'):
-        t = anime.get(key)
-        if t:
-            titles.append(t)
-    for entry in anime.get('titles', []) or []:
-        if entry.get('title'):
-            titles.append(entry['title'])
-    return [t for t in titles if t]
+HOT_KEYWORDS = [
+    'world cup', 'fifa', 'messi', 'mbappe', 'mbappé', 'haaland', 'ronaldo',
+    'bellingham', 'vinicius', 'vinícius', 'yamal', 'argentina', 'france',
+    'brazil', 'england', 'spain', 'germany', 'portugal', 'goal', 'hat-trick',
+    'hat trick', 'final', 'semfinal', 'semi-final', 'knockout', 'group stage',
+    'golden boot', 'wins', 'beat', 'stunner', 'comeback', 'penalty',
+]
 
 
-def _find_news_match(trending, news_items):
-    """Return (anime, news_item) if any trending anime appears in any headline."""
-    for anime in trending:
-        for cand in _alt_titles(anime):
-            cand_lower = cand.lower()
-            if len(cand_lower) < 5:  # avoid false positives on tiny titles
-                continue
-            for item in news_items:
-                text = (item['title'] + ' ' + item['summary']).lower()
-                if cand_lower in text:
-                    return anime, item
-    return None, None
+def _score_news_item(item):
+    text = (item['title'] + ' ' + item['summary']).lower()
+    score = sum(1 for kw in HOT_KEYWORDS if kw in text)
+    if 'world cup' in text or 'fifa' in text:
+        score += 4  # strongly prefer World Cup news while tournament is live
+    flair = item.get('flair', '')
+    if any(f in flair for f in ['news', 'media', 'official']):
+        score += 1
+    if item['source'] in ('bbc', 'guardian'):
+        score += 1
+    return score
+
+
+def _extract_image_subject(text):
+    """Try to pull a player or team name from a headline for image lookup."""
+    known = ['Lionel Messi', 'Messi', 'Kylian Mbappe', 'Mbappe', 'Erling Haaland',
+             'Haaland', 'Cristiano Ronaldo', 'Ronaldo', 'Jude Bellingham', 'Bellingham',
+             'Vinicius Junior', 'Vinicius', 'Lamine Yamal', 'Yamal', 'Rodri',
+             'Argentina', 'France', 'Brazil', 'England', 'Spain', 'Germany',
+             'Portugal', 'Netherlands', 'Italy', 'Croatia']
+    for name in known:
+        if name.lower() in text.lower():
+            return name
+    return ''
 
 
 # ---------------------------------------------------------------------------
@@ -228,51 +248,44 @@ def _find_news_match(trending, news_items):
 # ---------------------------------------------------------------------------
 
 def pick_topic():
-    print("[trend_picker] Fetching trending anime from Jikan...")
-    seasonal = _fetch_seasonal_top()
-    time.sleep(JIKAN_DELAY)
-    airing = _fetch_top_airing()
-    trending = _merge_trending(seasonal, airing)
+    today = datetime.now()
+    day_of_year = today.timetuple().tm_yday
 
-    if not trending:
-        raise RuntimeError("No trending anime found — Jikan may be down")
+    print("[trend_picker] Fetching football news...")
+    news_items = _fetch_all_news()
+    print(f"[trend_picker] Unique items: {len(news_items)}")
 
-    print(f"[trend_picker] Top 7 trending right now:")
-    for i, a in enumerate(trending[:7], 1):
-        title = a.get('title')
-        members = a.get('members', 0)
-        score = a.get('score', 0)
-        print(f"  {i}. {title}  (members: {members:,}  score: {score})")
+    scored = [(item, _score_news_item(item)) for item in news_items]
+    scored.sort(key=lambda x: x[1], reverse=True)
 
-    # Pool news from ANN + Crunchyroll + Reddit
-    news_items = _fetch_recent_news()
-    matched_anime, matched_news = _find_news_match(trending, news_items)
-
-    if matched_anime:
-        print(f"[trend_picker] News match (source: {matched_news['source']})")
-        print(f"[trend_picker]   Anime: {matched_anime.get('title')}")
-        print(f"[trend_picker]   News:  {matched_news['title']}")
+    # Strong news (a real World Cup / big-name story) wins the day
+    if scored and scored[0][1] >= 4:
+        best, sc = scored[0]
+        subject = _extract_image_subject(best['title'] + ' ' + best['summary'])
+        print(f"[trend_picker] News-driven topic (score {sc}, {best['source']})")
+        print(f"[trend_picker]   {best['title']}")
         return {
-            'anime':        matched_anime,
-            'news':         matched_news,
-            'content_type': 'news_commentary',
+            'content_type':  'news_commentary',
+            'news':          best,
+            'topic_title':   best['title'],
+            'topic_summary': best['summary'],
+            'image_subject': subject,
+            'rng_seed':      today.strftime('%Y%m%d'),
         }
 
-    # No news hit — ROTATE through top 7 by day-of-year so we don't post the
-    # same anime multiple days in a row. Fixes "Witch Hat 4 days in a row"
-    # problem and gives YouTube a clear "general anime news channel" identity.
-    day = datetime.now().timetuple().tm_yday
-    rotation_pool = trending[:7] if len(trending) >= 7 else trending
-    slot = day % len(rotation_pool)
-    top_pick = rotation_pool[slot]
-    content_type = CONTENT_TYPES[day % len(CONTENT_TYPES)]
+    # Otherwise rotate the curated pool by content type + day
+    content_type = CONTENT_TYPES[day_of_year % len(CONTENT_TYPES)]
+    matching = [t for t in CURATED_TOPICS if t[0] == content_type] or CURATED_TOPICS
+    ct, title, summary, subject = matching[day_of_year % len(matching)]
 
-    print(f"[trend_picker] No news hook — rotating top {len(rotation_pool)}")
-    print(f"[trend_picker]   Today's slot: #{slot + 1} -> {top_pick.get('title')}")
-    print(f"[trend_picker]   Content type: {content_type}")
+    print(f"[trend_picker] Curated rotation -> {ct}")
+    print(f"[trend_picker]   Topic: {title}")
 
     return {
-        'anime':        top_pick,
-        'news':         None,
-        'content_type': content_type,
+        'content_type':  ct,
+        'news':          None,
+        'topic_title':   title,
+        'topic_summary': summary,
+        'image_subject': subject,
+        'rng_seed':      today.strftime('%Y%m%d'),
     }

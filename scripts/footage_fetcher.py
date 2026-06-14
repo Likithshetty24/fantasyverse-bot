@@ -1,206 +1,176 @@
 """
-footage_fetcher.py
-Pulls high-quality imagery from MULTIPLE free sources and mixes them:
+footage_fetcher.py — Extra Time (football imagery)
 
-  1. Wallhaven       - 4K anime wallpapers (no API key)
-  2. Safebooru       - Tag-indexed anime art, huge variety (no API key)
-  3. Jikan/MAL       - Official character portraits & key visuals (no API key)
-  4. Pollinations.ai - AI-generated scene-specific images (no API key)
-
-All sources are free, no keys, SFW filters applied.
+Sources (all free):
+  1. TheSportsDB   — real player photos, team badges, stadium fanart (free key '3')
+  2. Pollinations  — AI-generated football stadium/action aesthetic
+  3. Pexels        — football stock (crowds, stadiums, pitch) [needs key]
+  4. Unsplash      — football-keyword fallback (no key)
 """
 
 import os
-import re
 import time
 import urllib.parse
 import requests
 
-# ---- Source endpoints -------------------------------------------------------
-WALLHAVEN_API    = "https://wallhaven.cc/api/v1/search"
-SAFEBOORU_API    = "https://safebooru.org/index.php"
-JIKAN_SEARCH     = "https://api.jikan.moe/v4/anime"
-JIKAN_PICTURES   = "https://api.jikan.moe/v4/anime/{id}/pictures"
-JIKAN_CHARACTERS = "https://api.jikan.moe/v4/characters"
-POLLINATIONS     = "https://image.pollinations.ai/prompt/{prompt}"
+THESPORTSDB   = "https://www.thesportsdb.com/api/v1/json/3"
+POLLINATIONS  = "https://image.pollinations.ai/prompt/{prompt}"
+PEXELS_API    = "https://api.pexels.com/v1"
+UNSPLASH_SRC  = "https://source.unsplash.com"
 
-JIKAN_DELAY      = 0.4
-DEFAULT_TIMEOUT  = 20
+DEFAULT_TIMEOUT = 45
+MIN_FILESIZE    = 6000
+
+STYLE_TOKENS = (
+    "cinematic, dramatic stadium lighting, vertical 9:16, 4k, "
+    "football atmosphere, vibrant, high energy, no text, no logos"
+)
+
+PROMPT_VARIANTS = [
+    "packed stadium under floodlights",
+    "football on the pitch close-up",
+    "roaring crowd with flags",
+    "player silhouette celebrating",
+    "stadium tunnel dramatic",
+    "green pitch aerial view",
+    "trophy gleaming in spotlight",
+    "fireworks over a stadium",
+]
+
+PEXELS_FALLBACK = [
+    "football stadium night", "soccer crowd", "football pitch",
+    "soccer ball grass", "stadium floodlights", "football fans flags",
+    "soccer celebration", "world cup atmosphere",
+]
+
+UNSPLASH_KEYWORDS = ['football-stadium', 'soccer', 'football-pitch',
+                     'stadium-crowd', 'soccer-ball', 'football-fans']
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _safebooru_tag(name):
-    """Convert 'Demon Slayer' → 'demon_slayer' (Safebooru tag format)."""
-    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
-
-
-def _download(url, path):
+def _download(url, path, timeout=DEFAULT_TIMEOUT):
     try:
-        r = requests.get(url, timeout=DEFAULT_TIMEOUT, stream=True,
-                         headers={'User-Agent': 'FantasyVerseBot/1.0'})
+        r = requests.get(url, timeout=timeout, stream=True, allow_redirects=True,
+                         headers={'User-Agent': 'ExtraTimeBot/1.0'})
         r.raise_for_status()
         with open(path, 'wb') as f:
             for chunk in r.iter_content(8192):
                 f.write(chunk)
-        # Sanity-check the file size
-        if os.path.getsize(path) < 4000:
+        if os.path.getsize(path) < MIN_FILESIZE:
             os.remove(path)
             return False
         return True
     except Exception as e:
         print(f"[footage] Download failed {url[:70]}: {e}")
+        if os.path.exists(path):
+            try: os.remove(path)
+            except: pass
         return False
 
 
 # ---------------------------------------------------------------------------
-# 1. Wallhaven — high-res anime wallpapers
+# 1. TheSportsDB — real player / team imagery
 # ---------------------------------------------------------------------------
 
-def _wallhaven_search(query, limit=6):
-    """Returns list of high-res wallpaper URLs."""
+def _sportsdb_player_images(name):
+    """Return player photo URLs (thumb, cutout, render)."""
     try:
-        params = {
-            'q':         query,
-            'categories':'010',     # anime only
-            'purity':    '100',     # SFW only
-            'sorting':   'relevance',
-            'ratios':    'portrait,9x16,9x18',
-            'atleast':   '1080x1920',
-        }
-        r = requests.get(WALLHAVEN_API, params=params, timeout=DEFAULT_TIMEOUT)
+        r = requests.get(f"{THESPORTSDB}/searchplayers.php",
+                         params={'p': name}, timeout=15)
         r.raise_for_status()
-        data = r.json().get('data', [])
-        urls = [w['path'] for w in data[:limit] if w.get('path')]
-        print(f"[footage] Wallhaven '{query}': {len(urls)} hits")
-        return urls
-    except Exception as e:
-        print(f"[footage] Wallhaven failed for '{query}': {e}")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# 2. Safebooru — tag-indexed anime art
-# ---------------------------------------------------------------------------
-
-def _safebooru_search(tag, limit=8):
-    """Returns list of art URLs filtered by tag (e.g. 'demon_slayer')."""
-    try:
-        params = {
-            'page':  'dapi',
-            's':     'post',
-            'q':     'index',
-            'json':  '1',
-            'tags':  f"{tag} rating:safe",
-            'limit': limit,
-        }
-        r = requests.get(SAFEBOORU_API, params=params, timeout=DEFAULT_TIMEOUT,
-                         headers={'User-Agent': 'FantasyVerseBot/1.0'})
-        r.raise_for_status()
-        posts = r.json() or []
+        players = r.json().get('player') or []
+        if not players:
+            return []
+        p = players[0]
         urls = []
-        for p in posts:
-            # Safebooru sometimes nests, sometimes flat
-            url = p.get('file_url') or p.get('sample_url')
-            if not url and p.get('directory') and p.get('image'):
-                url = f"https://safebooru.org//images/{p['directory']}/{p['image']}"
-            if url:
-                urls.append(url)
-        print(f"[footage] Safebooru '{tag}': {len(urls)} hits")
-        return urls
-    except Exception as e:
-        print(f"[footage] Safebooru failed for '{tag}': {e}")
-        return []
-
-
-# ---------------------------------------------------------------------------
-# 3. Jikan — official poster/character art
-# ---------------------------------------------------------------------------
-
-def jikan_anime_id(title):
-    """Public alias — main.py uses this to resolve anime ID once."""
-    return _jikan_anime_id(title)
-
-
-def _jikan_anime_id(title):
-    try:
-        r = requests.get(JIKAN_SEARCH,
-                         params={'q': title, 'limit': 3, 'order_by': 'popularity'},
-                         timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        data = r.json().get('data', [])
-        if data:
-            return data[0].get('mal_id')
-    except Exception as e:
-        print(f"[footage] Jikan ID lookup failed for '{title}': {e}")
-    return None
-
-
-def _jikan_pictures(anime_id, limit=6):
-    try:
-        r = requests.get(JIKAN_PICTURES.format(id=anime_id), timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        urls = []
-        for pic in r.json().get('data', []):
-            img = pic.get('jpg', {})
-            u = img.get('large_image_url') or img.get('image_url')
+        for key in ('strThumb', 'strCutout', 'strRender', 'strFanart1',
+                    'strFanart2', 'strFanart3', 'strFanart4'):
+            u = p.get(key)
             if u:
                 urls.append(u)
-        return urls[:limit]
-    except Exception:
+        print(f"[footage] TheSportsDB player '{name}': {len(urls)} images")
+        return urls
+    except Exception as e:
+        print(f"[footage] TheSportsDB player lookup failed for '{name}': {e}")
         return []
 
 
-def _jikan_character(name):
+def _sportsdb_team_images(name):
+    """Return team fanart / stadium / badge URLs."""
     try:
-        r = requests.get(JIKAN_CHARACTERS,
-                         params={'q': name, 'limit': 3, 'order_by': 'favorites'},
-                         timeout=DEFAULT_TIMEOUT)
+        r = requests.get(f"{THESPORTSDB}/searchteams.php",
+                         params={'t': name}, timeout=15)
         r.raise_for_status()
-        data = r.json().get('data', [])
-        if data:
-            return data[0].get('images', {}).get('jpg', {}).get('image_url')
-    except Exception:
-        return None
-    return None
+        teams = r.json().get('teams') or []
+        if not teams:
+            return []
+        t = teams[0]
+        urls = []
+        for key in ('strFanart1', 'strFanart2', 'strFanart3', 'strFanart4',
+                    'strStadiumThumb', 'strBadge'):
+            u = t.get(key)
+            if u:
+                urls.append(u)
+        print(f"[footage] TheSportsDB team '{name}': {len(urls)} images")
+        return urls
+    except Exception as e:
+        print(f"[footage] TheSportsDB team lookup failed for '{name}': {e}")
+        return []
 
 
 # ---------------------------------------------------------------------------
-# 4. Pollinations.ai — AI-generated scene images
+# 2. Pollinations
 # ---------------------------------------------------------------------------
 
-def _pollinations_url(prompt):
-    """Build a direct image URL — Pollinations generates on GET."""
+def _pollinations_url(prompt, seed=None):
     encoded = urllib.parse.quote(prompt, safe='')
-    return (
-        f"{POLLINATIONS.format(prompt=encoded)}"
-        f"?width=1080&height=1920&model=flux&nologo=true&enhance=true"
-    )
+    url = (f"{POLLINATIONS.format(prompt=encoded)}"
+           f"?width=1080&height=1920&model=flux&nologo=true&enhance=true")
+    if seed is not None:
+        url += f"&seed={seed}"
+    return url
 
 
-def _pollinations_prompts(anime, characters):
-    """Build 2-3 cinematic prompts for the AI generator."""
-    base_style = "anime style, cinematic, dramatic lighting, vertical composition, 4k, vibrant colors"
-    prompts = [f"epic scene from {anime}, dynamic pose, {base_style}"]
-
-    if characters:
-        char = characters[0]
-        prompts.append(f"{char} from {anime}, close-up portrait, intense expression, {base_style}")
-
-    prompts.append(f"{anime} aesthetic background, atmospheric, no characters, {base_style}")
+def _build_prompts(subject, count=6):
+    base = f"{subject} football" if subject else "world cup football"
+    prompts = []
+    for i in range(count):
+        variant = PROMPT_VARIANTS[i % len(PROMPT_VARIANTS)]
+        prompts.append(f"{base}, {variant}, {STYLE_TOKENS}")
     return prompts
+
+
+# ---------------------------------------------------------------------------
+# 3. Pexels
+# ---------------------------------------------------------------------------
+
+def _pexels_search(query, api_key, count=2):
+    if not api_key:
+        return []
+    try:
+        r = requests.get(f"{PEXELS_API}/search",
+                         headers={"Authorization": api_key},
+                         params={"query": query, "per_page": count,
+                                 "orientation": "portrait", "size": "large"},
+                         timeout=15)
+        r.raise_for_status()
+        return [p['src']['large2x'] for p in r.json().get('photos', [])]
+    except Exception as e:
+        print(f"[footage] Pexels failed for '{query}': {e}")
+        return []
+
+
+def _unsplash_url(keyword, seed=0):
+    return f"{UNSPLASH_SRC}/1080x1920/?{keyword}&sig={seed}"
 
 
 # ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
 
-def fetch_footage(focus_anime, focus_characters, output_dir,
-                  pexels_key=None, target_count=15):
+def fetch_footage(image_subject, output_dir, pexels_key=None,
+                  target_count=10, rng_seed=None):
     """
-    Pull a varied mix of high-quality imagery for today's anime.
+    image_subject: a player name, team name, or '' for generic football.
     Returns list of local image paths.
     """
     os.makedirs(output_dir, exist_ok=True)
@@ -208,59 +178,55 @@ def fetch_footage(focus_anime, focus_characters, output_dir,
     seen = set()
     idx = 0
 
-    def save(url, source_tag):
+    def save(url, tag, timeout=DEFAULT_TIMEOUT):
         nonlocal idx
         if not url or url in seen or idx >= target_count:
             return False
         seen.add(url)
-        p = os.path.join(output_dir, f"img_{idx:03d}_{source_tag}.jpg")
-        if _download(url, p):
+        p = os.path.join(output_dir, f"img_{idx:03d}_{tag}.jpg")
+        if _download(url, p, timeout=timeout):
             downloaded.append(p)
             idx += 1
             return True
         return False
 
-    # ---- 1. Wallhaven (4K anime wallpapers) ----
-    for url in _wallhaven_search(focus_anime, limit=5):
-        save(url, 'wh')
+    TEAMS = {'argentina', 'france', 'brazil', 'england', 'spain', 'germany',
+             'portugal', 'netherlands', 'italy', 'croatia'}
 
-    # ---- 2. Safebooru (tagged anime art) ----
-    sb_tag = _safebooru_tag(focus_anime)
-    for url in _safebooru_search(sb_tag, limit=6):
-        save(url, 'sb')
+    # ---- 1. Real imagery for a named subject ----
+    if image_subject:
+        if image_subject.lower() in TEAMS:
+            for url in _sportsdb_team_images(image_subject):
+                save(url, 'team', timeout=20)
+        else:
+            for url in _sportsdb_player_images(image_subject):
+                save(url, 'player', timeout=20)
+        time.sleep(0.3)
 
-    # ---- 3. Jikan (official posters + character portraits) ----
-    anime_id = _jikan_anime_id(focus_anime)
-    time.sleep(JIKAN_DELAY)
-    if anime_id:
-        for url in _jikan_pictures(anime_id, limit=4):
-            save(url, 'mal')
-        time.sleep(JIKAN_DELAY)
-
-    for char in (focus_characters or [])[:4]:
+    # ---- 2. Pollinations football scenes ----
+    base_seed = abs(hash(rng_seed or '')) % (2**31) if rng_seed else None
+    for i, prompt in enumerate(_build_prompts(image_subject, count=target_count)):
         if idx >= target_count:
             break
-        char_url = _jikan_character(char)
-        time.sleep(JIKAN_DELAY)
-        if char_url:
-            save(char_url, 'char')
+        seed = (base_seed + i) % (2**31) if base_seed is not None else None
+        save(_pollinations_url(prompt, seed=seed), 'ai')
 
-    # ---- 4. Pollinations AI-generated scenes ----
-    # Only fire 2 generations to avoid long waits (each takes 5-15 sec)
-    if idx < target_count - 1:
-        prompts = _pollinations_prompts(focus_anime, focus_characters)
-        for prompt in prompts[:2]:
+    # ---- 3. Pexels fallback ----
+    if idx < target_count and pexels_key:
+        print("[footage] Topping up with Pexels...")
+        for q in PEXELS_FALLBACK:
             if idx >= target_count:
                 break
-            url = _pollinations_url(prompt)
-            save(url, 'ai')
+            for url in _pexels_search(q, pexels_key, count=2):
+                save(url, 'pex', timeout=20)
 
-    # ---- Last resort: searching Wallhaven by character if low count ----
-    if idx < 5 and focus_characters:
-        for char in focus_characters[:2]:
-            for url in _wallhaven_search(char, limit=3):
-                save(url, 'wh-char')
+    # ---- 4. Unsplash last resort ----
+    if idx < target_count:
+        print("[footage] Topping up with Unsplash...")
+        for kw in UNSPLASH_KEYWORDS:
+            if idx >= target_count:
+                break
+            save(_unsplash_url(kw, seed=(base_seed or 1) + idx), 'us', timeout=20)
 
-    print(f"[footage] Total downloaded: {len(downloaded)} images "
-          f"(targets: {target_count})")
+    print(f"[footage] Total downloaded: {len(downloaded)} images (target: {target_count})")
     return downloaded

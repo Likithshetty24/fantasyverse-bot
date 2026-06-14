@@ -1,11 +1,13 @@
 """
 footage_fetcher.py — Extra Time (football imagery)
 
-Sources (all free):
+Sources (all free, all REAL photos — no AI generation):
   1. TheSportsDB   — real player photos, team badges, stadium fanart (free key '3')
-  2. Pollinations  — AI-generated football stadium/action aesthetic
-  3. Pexels        — football stock (crowds, stadiums, pitch) [needs key]
-  4. Unsplash      — football-keyword fallback (no key)
+  2. Pexels        — football stock (crowds, stadiums, pitch) [needs key]
+  3. Unsplash      — football-keyword fallback (no key)
+
+(Pollinations AI removed — it went paid/402. Real football photos look
+better than AI for recognizable teams/players anyway.)
 """
 
 import os
@@ -213,31 +215,24 @@ def fetch_footage(image_subject, output_dir, pexels_key=None,
                 save(url, 'player', timeout=20)
         time.sleep(0.3)
 
-    # ---- 2. Pollinations football scenes ----
-    prompt_subject = subjects[0] if subjects else ''
-    base_seed = abs(hash(rng_seed or '')) % (2**31) if rng_seed else None
-    for i, prompt in enumerate(_build_prompts(prompt_subject, count=target_count)):
-        if idx >= target_count:
-            break
-        seed = (base_seed + i) % (2**31) if base_seed is not None else None
-        save(_pollinations_url(prompt, seed=seed), 'ai')
+    base_seed = abs(hash(rng_seed or '')) % (2**31) if rng_seed else 1
 
-    # ---- 3. Pexels fallback ----
+    # ---- 2. Pexels football stock (real photos — primary filler) ----
     if idx < target_count and pexels_key:
-        print("[footage] Topping up with Pexels...")
+        print("[footage] Filling with Pexels football stock...")
         for q in PEXELS_FALLBACK:
             if idx >= target_count:
                 break
-            for url in _pexels_search(q, pexels_key, count=2):
+            for url in _pexels_search(q, pexels_key, count=3):
                 save(url, 'pex', timeout=20)
 
-    # ---- 4. Unsplash last resort ----
+    # ---- 3. Unsplash last resort (real photos, no key) ----
     if idx < target_count:
         print("[footage] Topping up with Unsplash...")
         for kw in UNSPLASH_KEYWORDS:
             if idx >= target_count:
                 break
-            save(_unsplash_url(kw, seed=(base_seed or 1) + idx), 'us', timeout=20)
+            save(_unsplash_url(kw, seed=base_seed + idx), 'us', timeout=20)
 
     print(f"[footage] Total downloaded: {len(downloaded)} images (target: {target_count})")
     return downloaded

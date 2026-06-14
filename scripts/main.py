@@ -13,6 +13,7 @@ from trend_picker        import pick_topic
 from script_generator    import generate_script_and_metadata
 from tts_generator       import generate_voiceover
 from footage_fetcher     import fetch_footage
+from video_clip_fetcher  import fetch_broll
 from thumbnail_generator import generate_thumbnail
 from video_assembler     import build_video
 from youtube_uploader    import upload_video, upload_thumbnail
@@ -71,13 +72,24 @@ def main():
         rng_seed=topic.get('rng_seed'),
     )
 
+    # 4b. Free football B-roll clips (real motion)
+    print("\n[4b/6] Fetching B-roll video clips...")
+    broll_dir = os.path.join(WORK_DIR, 'broll')
+    video_clip_paths = fetch_broll(
+        output_dir=broll_dir,
+        pexels_key=pexels_key,
+        pixabay_key=os.environ.get('PIXABAY_API_KEY', ''),
+        target_clips=4,
+    )
+
     # 5. Thumbnail + video
     print("\n[5/6] Generating thumbnail and video...")
     thumbnail_path = os.path.join(WORK_DIR, 'thumbnail.jpg')
     generate_thumbnail(image_paths, thumb_text, thumbnail_path)
 
     output_path = os.path.join(WORK_DIR, 'final_video.mp4')
-    build_video(image_paths, audio_path, output_path, banner_tag=banner_tag)
+    build_video(image_paths, audio_path, output_path, banner_tag=banner_tag,
+                video_clip_paths=video_clip_paths)
 
     if not os.path.exists(output_path):
         print("ERROR: Video file was not created.")

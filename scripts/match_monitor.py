@@ -23,6 +23,8 @@ from match_schedule     import (get_recent_and_today_matches,
 from script_generator   import generate_match_news
 from tts_generator      import generate_voiceover
 from footage_fetcher    import fetch_footage
+from video_clip_fetcher import fetch_broll
+from graphics           import make_scoreline_clip
 from thumbnail_generator import generate_thumbnail
 from video_assembler    import build_video
 from youtube_uploader   import upload_video, upload_thumbnail
@@ -72,11 +74,34 @@ def _make_reaction_video(match, phase):
             rng_seed=f"{match['id']}{phase}",
         )
 
+        # Free B-roll clips for real motion
+        broll_dir = os.path.join(run_dir, 'broll')
+        video_clip_paths = fetch_broll(
+            output_dir=broll_dir,
+            pexels_key=os.environ.get('PEXELS_API_KEY', ''),
+            pixabay_key=os.environ.get('PIXABAY_API_KEY', ''),
+            target_clips=4,
+        )
+
+        # Animated scoreline reveal at the start
+        phase_label = 'HALF TIME' if phase == 'HALF-TIME' else 'FULL TIME'
+        try:
+            scoreline = make_scoreline_clip(
+                match['home'], match['away'],
+                int(match['home_score']), int(match['away_score']),
+                phase=phase_label,
+            )
+            pre_clips = [scoreline]
+        except Exception as e:
+            print(f"[monitor] Scoreline graphic failed (skipping): {e}")
+            pre_clips = []
+
         thumb = os.path.join(run_dir, 'thumb.jpg')
         generate_thumbnail(image_paths, meta['thumbnail_text'], thumb)
 
         out = os.path.join(run_dir, 'video.mp4')
-        build_video(image_paths, audio_path, out, banner_tag=meta['banner_tag'])
+        build_video(image_paths, audio_path, out, banner_tag=meta['banner_tag'],
+                    video_clip_paths=video_clip_paths, pre_clips=pre_clips)
 
         video_id = upload_video(out, meta['title'], meta['description'], meta['tags'])
         if os.path.exists(thumb):

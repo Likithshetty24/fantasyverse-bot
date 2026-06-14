@@ -23,7 +23,7 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
-    ImageClip, AudioFileClip, concatenate_videoclips,
+    ImageClip, AudioFileClip, VideoFileClip, concatenate_videoclips,
     CompositeVideoClip, ColorClip,
 )
 
@@ -167,6 +167,42 @@ def flash_frame(duration=0.04):
     return ColorClip(size=(WIDTH, HEIGHT), color=(240, 240, 230)).set_duration(duration)
 
 
+def _overlay_stamp(banner_tag):
+    """Precompute the pill overlay + a boolean mask of where it paints."""
+    overlay = add_overlay(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8), banner_tag)
+    mask = (overlay.sum(axis=2) > 8)[:, :, None]  # HxWx1 bool
+    return overlay, mask
+
+
+def load_video_shot(path, max_duration, banner_tag):
+    """
+    Load a B-roll mp4, cover-crop to 1080x1920, mute, and stamp the pill.
+    Returns (clip, actual_duration) or (None, 0) on failure.
+    """
+    try:
+        vc = VideoFileClip(path).without_audio()
+        actual = min(vc.duration, max_duration)
+        vc = vc.subclip(0, actual)
+
+        # cover-scale to fill the 9:16 frame, then center-crop
+        if (vc.w / vc.h) > (WIDTH / HEIGHT):
+            vc = vc.resize(height=HEIGHT)
+        else:
+            vc = vc.resize(width=WIDTH)
+        vc = vc.crop(x_center=vc.w / 2, y_center=vc.h / 2, width=WIDTH, height=HEIGHT)
+
+        overlay, mask = _overlay_stamp(banner_tag)
+
+        def stamp(frame):
+            return (frame * (~mask) + overlay * mask).astype('uint8')
+
+        vc = vc.fl_image(stamp)
+        return vc, actual
+    except Exception as e:
+        print(f"[video_assembler] Failed to load B-roll {path}: {e}")
+        return None, 0
+
+
 # ---------------------------------------------------------------------------
 # Intro / Outro
 # ---------------------------------------------------------------------------
@@ -213,12 +249,22 @@ def create_outro_card(duration=2.5):
 # Build
 # ---------------------------------------------------------------------------
 
-def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP"):
+def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP",
+                video_clip_paths=None, pre_clips=None):
+    """
+    image_paths      : real stills (Ken Burns)
+    video_clip_paths : free B-roll mp4s, interleaved with stills (real motion)
+    pre_clips        : moviepy clips (e.g. animated scoreline) shown first
+    """
     print("[video_assembler] Building football Short...")
+    video_clip_paths = video_clip_paths or []
+    pre_clips        = pre_clips or []
 
     audio          = AudioFileClip(audio_path)
     total_duration = audio.duration
     print(f"[video_assembler] Audio: {total_duration:.1f}s")
+    print(f"[video_assembler] Sources: {len(image_paths)} stills + "
+          f"{len(video_clip_paths)} B-roll + {len(pre_clips)} graphics")
 
     if image_paths:
         backgrounds = [add_overlay(prepare_background(p), banner_tag) for p in image_paths]
@@ -227,13 +273,33 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP"):
 
     intro_dur = 1.3
     outro_dur = 2.5
-    # Content fills the voiceover; intro overlaps slightly, outro adds tail.
     content_dur = max(total_duration - intro_dur + 0.5, 5.0)
+
+    # Build an interleaved source plan: still, broll, still, still, broll...
+    # (~1 B-roll every 3 shots so real motion is sprinkled through)
+    sources = []
+    bi = 0
+    si = 0
+    n_slots = 40  # plenty; we stop by time anyway
+    for k in range(n_slots):
+        if video_clip_paths and k % 3 == 2:
+            sources.append(('video', video_clip_paths[bi % len(video_clip_paths)]))
+            bi += 1
+        else:
+            sources.append(('image', backgrounds[si % len(backgrounds)]))
+            si += 1
 
     content_clips = []
     current_t = 0.0
     shot_idx = 0
     shot_durations = _shot_durations()
+
+    # Optional pre-clips (scoreline) play first inside the content timeline
+    for pc in pre_clips:
+        d = pc.duration
+        content_clips.append(pc.set_start(current_t).crossfadein(0.2))
+        current_t += d
+        shot_idx += 1
 
     while current_t < content_dur:
         remaining = content_dur - current_t
@@ -242,20 +308,30 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP"):
         if clip_dur < 0.5:
             break
 
-        bg = backgrounds[shot_idx % len(backgrounds)]
-        if shot_idx % 3 == 0:
-            shot = zoom_punch_clip(bg, clip_dur)
+        kind, src = sources[shot_idx % len(sources)]
+
+        if kind == 'video':
+            shot, actual = load_video_shot(src, clip_dur, banner_tag)
+            if shot is None:
+                shot_idx += 1
+                continue
+            shot = shot.set_start(current_t).crossfadein(0.3)
+            content_clips.append(shot)
+            current_t += actual
         else:
-            shot = gentle_zoom_clip(bg, clip_dur)
-        shot = shot.set_start(current_t).crossfadein(0.3)
-        content_clips.append(shot)
+            if shot_idx % 3 == 0:
+                shot = zoom_punch_clip(src, clip_dur)
+            else:
+                shot = gentle_zoom_clip(src, clip_dur)
+            shot = shot.set_start(current_t).crossfadein(0.3)
+            content_clips.append(shot)
+            if shot_idx % 4 == 3 and remaining > target + 0.1:
+                content_clips.append(flash_frame(0.04).set_start(current_t + clip_dur - 0.02))
+            current_t += clip_dur
 
-        if shot_idx % 4 == 3 and remaining > target + 0.1:
-            flash = flash_frame(0.04).set_start(current_t + clip_dur - 0.02)
-            content_clips.append(flash)
-
-        current_t += clip_dur
         shot_idx += 1
+
+    content_dur = max(content_dur, current_t)
 
     intro = create_intro_card(banner_tag, intro_dur)
     outro = create_outro_card(outro_dur)

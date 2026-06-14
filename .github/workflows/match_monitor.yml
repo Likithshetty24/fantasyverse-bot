@@ -55,10 +55,22 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain data/posted_events.json)" ]; then
-            git add data/posted_events.json
-            git commit -m "chore: update posted match events [skip ci]"
-            git push
-          else
+          if [ -z "$(git status --porcelain data/posted_events.json)" ]; then
             echo "No state change to commit."
+            exit 0
           fi
+          git add data/posted_events.json
+          git commit -m "chore: update posted match events [skip ci]"
+          # Remote master may have moved (concurrent run / other pushes).
+          # Rebase our tiny state commit on top and retry the push so we
+          # never lose the posted-events record (which would cause re-posts).
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin master && git push; then
+              echo "State pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying in 5s..."
+            sleep 5
+          done
+          echo "ERROR: could not push state after 5 attempts."
+          exit 1

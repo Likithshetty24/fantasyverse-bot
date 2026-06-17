@@ -13,6 +13,7 @@ from trend_picker        import pick_topic
 from script_generator    import generate_script_and_metadata
 from tts_generator       import generate_voiceover
 from footage_fetcher     import fetch_footage
+from news_image_fetcher  import fetch_current_images
 from video_clip_fetcher  import fetch_broll
 from thumbnail_generator import generate_thumbnail
 from video_assembler     import build_video
@@ -68,9 +69,15 @@ def main():
         image_subject=image_subject,
         output_dir=images_dir,
         pexels_key=pexels_key,
-        target_count=10,
+        target_count=8,
         rng_seed=topic.get('rng_seed'),
     )
+
+    # Current, on-topic article images (news topics only) — shown first
+    if topic.get('content_type') == 'news_commentary' and topic.get('news'):
+        live_dir = os.path.join(WORK_DIR, 'live')
+        live_paths = fetch_current_images(topic['news'], live_dir, max_n=3)
+        image_paths = live_paths + image_paths
 
     # 4b. Free football B-roll clips (real motion)
     print("\n[4b/6] Fetching B-roll video clips...")

@@ -147,13 +147,19 @@ def _fetch_reddit(limit=20):
             title = (d.get('title') or '').strip()
             if not title or not _is_news_worthy(title):
                 continue
+            # Best-effort current image from the post preview
+            img_url = ''
+            prev = d.get('preview', {})
+            if isinstance(prev, dict) and prev.get('images'):
+                img_url = (prev['images'][0].get('source', {}) or {}).get('url', '')
             # r/soccer flairs: News, Media, Stats, Transfers, Discussion, etc.
             items.append({
-                'title':   title,
-                'summary': (d.get('selftext') or '')[:280],
-                'link':    'https://reddit.com' + d.get('permalink', ''),
-                'source':  'reddit',
-                'flair':   flair,
+                'title':     title,
+                'summary':   (d.get('selftext') or '')[:280],
+                'link':      'https://reddit.com' + d.get('permalink', ''),
+                'source':    'reddit',
+                'flair':     flair,
+                'image_url': img_url,
             })
         return items
     except Exception as e:

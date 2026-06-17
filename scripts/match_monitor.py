@@ -23,6 +23,7 @@ from match_schedule     import (get_recent_and_today_matches,
 from script_generator   import generate_match_news
 from tts_generator      import generate_voiceover
 from footage_fetcher    import fetch_footage
+from news_image_fetcher import search_match_images
 from video_clip_fetcher import fetch_broll
 from graphics           import make_scoreline_clip
 from thumbnail_generator import generate_thumbnail
@@ -70,9 +71,14 @@ def _make_reaction_video(match, phase):
             image_subject=meta['image_subject'],   # [home, away]
             output_dir=images_dir,
             pexels_key=os.environ.get('PEXELS_API_KEY', ''),
-            target_count=10,
+            target_count=8,
             rng_seed=f"{match['id']}{phase}",
         )
+
+        # Current, match-specific images (Reddit r/soccer) — shown first
+        live_dir = os.path.join(run_dir, 'live')
+        live_paths = search_match_images(match['home'], match['away'], live_dir, max_n=3)
+        image_paths = live_paths + image_paths
 
         # Free B-roll clips for real motion
         broll_dir = os.path.join(run_dir, 'broll')

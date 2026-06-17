@@ -271,9 +271,10 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP",
     else:
         backgrounds = [add_overlay(make_gradient_background(), banner_tag)]
 
-    intro_dur = 1.3
+    # No intro card — open instantly on the hook (striking image / scoreline)
+    # so viewers don't swipe away in the first second.
     outro_dur = 2.5
-    content_dur = max(total_duration - intro_dur + 0.5, 5.0)
+    content_dur = max(total_duration, 5.0)
 
     # Build an interleaved source plan: still, broll, still, still, broll...
     # (~1 B-roll every 3 shots so real motion is sprinkled through)
@@ -333,11 +334,10 @@ def build_video(image_paths, audio_path, output_path, banner_tag="WORLD CUP",
 
     content_dur = max(content_dur, current_t)
 
-    intro = create_intro_card(banner_tag, intro_dur)
     outro = create_outro_card(outro_dur)
 
     content = CompositeVideoClip(content_clips, size=(WIDTH, HEIGHT)).set_duration(content_dur)
-    full = concatenate_videoclips([intro, content, outro], method='compose', padding=-0.25)
+    full = concatenate_videoclips([content, outro], method='compose', padding=-0.25)
     full = full.set_audio(audio)
 
     full.write_videofile(

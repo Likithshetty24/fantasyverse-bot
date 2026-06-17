@@ -34,19 +34,51 @@ WORK_DIR   = '/tmp/extra_time_match'
 STATE_DIR  = os.path.join(os.path.dirname(__file__), '..', 'data')
 STATE_FILE = os.path.join(STATE_DIR, 'posted_events.json')
 
+# Quality over quantity: never post more than this many reaction videos
+# per UTC day. Flooding a young channel hurts reach — pick the biggest games.
+MAX_PER_DAY = 3
+
+# Big footballing nations get priority when more events are pending than
+# the daily slots allow. Matched as case-insensitive substrings.
+BIG_TEAMS = [
+    'argentina', 'brazil', 'france', 'england', 'spain', 'germany',
+    'portugal', 'netherlands', 'italy', 'belgium', 'uruguay', 'croatia',
+    'united states', 'usa', 'mexico', 'japan', 'morocco', 'colombia',
+]
+
 
 def _load_state():
+    """Return (posted_set, daily_counts_dict). Migrates the old list format."""
     try:
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            return set(json.load(f))
+            data = json.load(f)
+        if isinstance(data, list):          # old format = just posted keys
+            return set(data), {}
+        return set(data.get('posted', [])), dict(data.get('daily', {}))
     except Exception:
-        return set()
+        return set(), {}
 
 
-def _save_state(posted):
+def _save_state(posted, daily):
     os.makedirs(STATE_DIR, exist_ok=True)
+    # Keep only the last ~10 days of counters so the file stays small
+    if len(daily) > 10:
+        for k in sorted(daily)[:-10]:
+            daily.pop(k, None)
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(sorted(posted), f, indent=2)
+        json.dump({'posted': sorted(posted), 'daily': daily}, f, indent=2)
+
+
+def _priority(item):
+    """Higher = more important. Big teams first, full-time over half-time."""
+    match, phase, _ = item
+    names = (match['home'] + ' ' + match['away']).lower()
+    score = 0
+    if any(t in names for t in BIG_TEAMS):
+        score += 10
+    if phase == 'FULL-TIME':
+        score += 2
+    return score
 
 
 def _make_reaction_video(match, phase):
@@ -129,7 +161,16 @@ def main():
         print("[monitor] FOOTBALL_DATA_API_KEY not set — nothing to monitor. Exiting.")
         return
 
-    posted = _load_state()
+    posted, daily = _load_state()
+    today = datetime.utcnow().strftime('%Y-%m-%d')
+    posted_today = daily.get(today, 0)
+    remaining = MAX_PER_DAY - posted_today
+
+    if remaining <= 0:
+        print(f"[monitor] Daily cap reached ({posted_today}/{MAX_PER_DAY} "
+              f"for {today}). Exiting.")
+        return
+
     matches = get_recent_and_today_matches()
 
     # Build the queue of new HT/FT events
@@ -149,14 +190,21 @@ def main():
         print("[monitor] No new half-time/full-time events. Exiting.")
         return
 
-    print(f"[monitor] {len(queue)} new event(s) to post")
+    # Prioritize the biggest matches, then cap to remaining daily slots.
+    queue.sort(key=_priority, reverse=True)
+    selected = queue[:remaining]
+    skipped  = len(queue) - len(selected)
+    print(f"[monitor] {len(queue)} new event(s); posting {len(selected)} "
+          f"(cap {MAX_PER_DAY}/day, {posted_today} already today)"
+          + (f", skipping {skipped} lower-priority" if skipped else ""))
 
     os.makedirs(WORK_DIR, exist_ok=True)
-    for match, phase, key in queue:
+    for match, phase, key in selected:
         try:
             _make_reaction_video(match, phase)
             posted.add(key)
-            _save_state(posted)   # save after each so a crash doesn't re-post
+            daily[today] = daily.get(today, 0) + 1
+            _save_state(posted, daily)   # save after each so a crash doesn't re-post
         except Exception:
             print(f"[monitor] FAILED {key}:")
             traceback.print_exc()

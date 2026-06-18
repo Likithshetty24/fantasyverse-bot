@@ -32,9 +32,11 @@ FPS = 30
 
 
 def _shot_durations():
+    # Fast cuts up front to win the first few seconds (hook retention),
+    # then settle into a slightly calmer rhythm.
     rng = random.Random(datetime.now().strftime('%Y%m%d'))
-    base = [3.4, 2.8, 2.5, 2.3, 2.2, 2.4, 2.6, 2.5, 2.7, 2.9, 3.1]
-    return [round(d + rng.uniform(-0.25, 0.25), 2) for d in base]
+    base = [1.7, 1.8, 2.0, 2.2, 2.4, 2.5, 2.7, 2.6, 2.8, 3.0, 3.0]
+    return [round(d + rng.uniform(-0.2, 0.2), 2) for d in base]
 
 
 # Football palette — pitch green + gold
@@ -235,12 +237,15 @@ def create_outro_card(duration=2.5):
     font_big = _font(FONT_BOLD, 80)
     font_med = _font(FONT_BOLD, 56)
 
-    font_brand = _font(FONT_BOLD, 72)
+    font_brand = _font(FONT_BOLD, 70)
+    font_small = _font(FONT_BOLD, 44)
 
-    draw.text((WIDTH // 2, HEIGHT // 2 - 180), "SUBSCRIBE TO",    fill=TEXT_COLOR, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 - 70),  CHANNEL_NAME.upper(), fill=GOLD,    font=font_brand, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 80),  "for daily football", fill=TEXT_COLOR, font=font_med, anchor="mm")
-    draw.text((WIDTH // 2, HEIGHT // 2 + 160), "& World Cup news",   fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 210), "FOLLOW",          fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 - 100), CHANNEL_NAME.upper(), fill=GOLD,    font=font_brand, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 40),  "daily World Cup",  fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 110), "reactions",        fill=TEXT_COLOR, font=font_med, anchor="mm")
+    draw.text((WIDTH // 2, HEIGHT // 2 + 210), "don't miss the next shock",
+              fill=GOLD, font=font_small, anchor="mm")
 
     return ImageClip(np.array(img)).set_duration(duration).fadein(0.3).fadeout(0.3)
 

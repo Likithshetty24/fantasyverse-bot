@@ -16,10 +16,22 @@ WRITING STYLE — sound like a passionate football fan, NOT an AI:
 - Drop natural filler: "look", "honestly", "let's be real", "here's the thing", "mate"
 - Strategic ellipses ("...") for dramatic pauses before a big stat or claim
 - Sound like you're at the pub arguing football with your mates, not reading a report
-- Personal hooks: "I still can't believe...", "Tell me you saw that...", "No debate here..."
 - NEVER say AI-narrator phrases: "In this video", "Let's dive in", "Welcome back", "Today we discuss"
 - React like a fan: "what a goal", "scenes", "he cooked them", "absolute scenes", "take a bow"
-- Subscribe ask: casual — "follow for daily football", "hit follow for more", never "smash subscribe"
+
+RETENTION CRAFT (this is what makes views go up — follow it):
+- THE HOOK IS EVERYTHING. The first sentence must stop a thumb mid-scroll.
+  Lead with the single most shocking fact, number, or hot take — not a setup.
+  BAD opener: "So Argentina played Algeria today and it was interesting."
+  GOOD opener: "Algeria just held the World Cup champions. Nobody saw this coming."
+- NEVER open with the date, the competition name, or "today". Open with the drama.
+- Around the middle, drop a RETENTION TURN — a "but here's the crazy part..." /
+  "and that's not even the wild bit..." pivot that makes them keep watching.
+- Build to ONE debate-bait question at the end that fans CAN'T resist replying to
+  (e.g. "Is this the worst result in their history, or am I overreacting?").
+- CTA: give a REASON to follow tied to the moment, casual — e.g.
+  "Follow so you don't miss the next World Cup shock" / "Hit follow — more reactions
+  every match." Never "smash subscribe".
 """.strip()
 
 
@@ -29,17 +41,22 @@ After the script, output EXACTLY this block:
 TITLE: Follow these RULES EXACTLY:
   - 45-65 characters total (counting "#Shorts" at the end)
   - Player/team/topic name in the first 30 characters
-  - MUST include one power word: GOAT, INSANE, SHOCKING, UNREAL, BEST, WORST, NEVER, WHY, REAL, KING
-  - "#Shorts" at the END only, exactly once
-  - NO emojis, NO all-caps spam
-  GOOD examples:
-    ✓ "Why Messi is still the GOAT at the 2026 World Cup #Shorts"
-    ✓ "Mbappe is UNREAL — France's biggest weapon #Shorts"
-    ✓ "The most SHOCKING World Cup upset ever #Shorts"
-  BAD examples:
-    ✗ "Football news #Shorts"          (no specifics)
-    ✗ "#Shorts Messi goal"             (Shorts at start)
-    ✗ "MESSI GOAT FIRE 🔥 #Shorts"      (emoji + spam)
+  - "#Shorts" at the END only, exactly once. NO emojis, NO all-caps spam.
+  - VARY THE FORMAT every time. Do NOT use the template "[Team]'s SHOCKING [result]"
+    — it's overused and kills click-through. Rotate between these patterns:
+      • Question: "Did Algeria just end Argentina's reign? #Shorts"
+      • Bold claim: "Messi has never looked this human #Shorts"
+      • Curiosity gap: "Nobody is talking about what Mbappe just did #Shorts"
+      • Number/stat: "3 records Haaland broke in one half #Shorts"
+      • Callout: "Brazil fans, we need to talk about this #Shorts"
+      • Hot take: "This was the worst Spain performance in years #Shorts"
+  - Use a strong word but DON'T default to "SHOCKING" — rotate among:
+    INSANE, UNREAL, BRUTAL, STUNNING, EMBARRASSING, GENIUS, CHAOS, DESERVED,
+    ROBBED, FINISHED, GOAT, MASTERCLASS — or none if the hook is strong without it.
+  BAD titles:
+    ✗ "Brazil's SHOCKING draw #Shorts"   (the banned overused template)
+    ✗ "Football news #Shorts"            (no specifics)
+    ✗ "#Shorts Messi goal"               (Shorts at start)
 
 DESCRIPTION: [80-120 words, passionate football-fan tone, expand on the topic,
               end with casual follow CTA]

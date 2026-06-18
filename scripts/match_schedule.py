@@ -83,6 +83,29 @@ def get_recent_and_today_matches():
     return matches
 
 
+def get_match_goals(match_id):
+    """
+    Return {scorer_name: goal_count} for a match (own goals excluded).
+    Lets the monitor auto-detect braces/hat-tricks for spicy debate videos.
+    Returns {} if unavailable (free plan limits, etc.).
+    """
+    if not has_api_key() or not match_id:
+        return {}
+    try:
+        r = requests.get(f"{FD_BASE}/matches/{match_id}",
+                         headers=_headers(), timeout=20)
+        if r.status_code != 200:
+            return {}
+        counts = {}
+        for g in (r.json().get('goals') or []):
+            scorer = (g.get('scorer', {}) or {}).get('name')
+            if scorer and g.get('type', 'REGULAR') != 'OWN':
+                counts[scorer] = counts.get(scorer, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
 def get_match_events_text(match_id):
     """
     Best-effort: fetch goals + bookings for richer reaction content.

@@ -19,8 +19,8 @@ import traceback
 from datetime import datetime
 
 from match_schedule     import (get_recent_and_today_matches,
-                                 get_match_events_text, has_api_key)
-from script_generator   import generate_match_news
+                                 get_match_events_text, get_match_goals, has_api_key)
+from script_generator   import generate_match_news, generate_script_and_metadata
 from tts_generator      import generate_voiceover
 from footage_fetcher    import fetch_footage
 from news_image_fetcher import search_match_images
@@ -93,7 +93,32 @@ def _make_reaction_video(match, phase):
         print(f"\n[monitor] >>> {phase}: {match['home']} {match['home_score']}-"
               f"{match['away_score']} {match['away']}")
 
-        meta = generate_match_news(match, phase)
+        # Star-performance hijack: if someone bagged a brace/hat-trick at
+        # FULL-TIME, post a spicy GOAT/debate video about THAT player instead
+        # of a generic recap — these drive far more engagement.
+        star_player, star_count = None, 0
+        if phase == 'FULL-TIME':
+            for name, c in get_match_goals(match['id']).items():
+                if c >= 2 and c > star_count:
+                    star_player, star_count = name, c
+
+        if star_player:
+            feat = 'hat-trick' if star_count >= 3 else 'brace'
+            print(f"[monitor] Star performance: {star_player} {feat} "
+                  f"({star_count} goals) -> debate video")
+            topic = {
+                'content_type':  'debate',
+                'topic_title':   f"{star_player} just scored a {feat} — is he the GOAT now?",
+                'topic_summary': (f"{star_player} scored a {feat} ({star_count} goals) in "
+                                  f"{match['home']} {match['home_score']}-{match['away_score']} "
+                                  f"{match['away']}. Spicy GOAT/rivalry hot take, grounded in "
+                                  f"this performance."),
+                'image_subject': star_player,
+                'rng_seed':      f"{match['id']}{phase}",
+            }
+            meta = generate_script_and_metadata(topic)
+        else:
+            meta = generate_match_news(match, phase)
 
         audio_path = os.path.join(run_dir, 'vo.mp3')
         generate_voiceover(meta['script'], audio_path)

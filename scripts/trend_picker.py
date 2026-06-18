@@ -33,13 +33,14 @@ EXCLUDE_NEWS_KEYWORDS = ['quiz', 'crossword', 'podcast', 'how to watch', 'tv gui
 
 
 CONTENT_TYPES = [
+    'debate',           # weighted heaviest — biggest comment driver
     'player_spotlight',
+    'debate',
     'top_moments',
     'match_hype',
+    'debate',
     'team_focus',
     'records_stats',
-    'player_spotlight',
-    'top_moments',
 ]
 
 
@@ -51,6 +52,24 @@ CONTENT_TYPES = [
 # ---------------------------------------------------------------------------
 
 CURATED_TOPICS = [
+    # ---- Debate / hot-take (engagement gold — Messi vs Ronaldo etc.) ----
+    ('debate', 'Messi vs Ronaldo — is the debate finally over?',
+     'Messi still scoring hat-tricks at 38 while Ronaldo struggles for form. Argue the GOAT debate is settled.', 'Lionel Messi'),
+    ('debate', 'Is Cristiano Ronaldo finished at this World Cup?',
+     'Ronaldo poor performances and low ratings. Make the case he is past it — back it with stats, not insults.', 'Cristiano Ronaldo'),
+    ('debate', 'Messi is STILL the GOAT at 38',
+     'Messi defying age. Defend the GOAT claim with his World Cup numbers.', 'Lionel Messi'),
+    ('debate', 'The most overrated player at the 2026 World Cup',
+     'Pick a big name not living up to the hype and make the case.', ''),
+    ('debate', 'Mbappe vs Haaland — who is the real next GOAT?',
+     'The heir-to-the-throne debate. Pick a side and commit.', 'Kylian Mbappe'),
+    ('debate', 'Vinicius or Lamine Yamal — who is better right now?',
+     'The best-young-winger debate that splits fans.', 'Vinicius Junior'),
+    ('debate', 'Is this the worst Brazil side in history?',
+     'Brazil underperforming again. Argue whether the Selecao have fallen off.', 'Brazil'),
+    ('debate', 'England are frauds until they prove otherwise',
+     'England talent vs trophies. Make the spicy case.', 'England'),
+
     # ---- Star player spotlights ----
     ('player_spotlight', 'Lionel Messi at the 2026 World Cup',
      'the GOAT debate, his final World Cup, and what Argentina needs from him', 'Lionel Messi'),

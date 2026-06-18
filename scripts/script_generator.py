@@ -68,6 +68,35 @@ SEARCH_TAGS: [8 hashtags starting with #: #WorldCup2026 #Football #Soccer #FIFA 
 """.strip()
 
 
+def _prompt_debate(topic_title, topic_summary):
+    return f"""You are a football debate YouTuber writing a SPICY hot-take Short for "Extra Time". This format exists to start arguments in the comments — that's the whole point. Two fanbases should be raging at each other under this video.
+
+TODAY'S DEBATE:
+{topic_title}
+Angle: {topic_summary}
+
+Pick a SIDE and commit to it hard. Be provocative, confident, a little arrogant. But back EVERY jab with a real stat or moment so it's a defensible hot take fans have to argue with — not empty trash talk.
+
+STRUCTURE:
+1. HOOK (5-8 words) — the most divisive line possible. e.g. "Ronaldo fans, this one's gonna hurt."
+2. THE TAKE (10-15 sec) — state your side bluntly, then the evidence (recent games, real numbers)
+3. TWIST THE KNIFE (15-40 sec) — 2-3 more points, directly compare the two sides, drop the stats
+4. CLOSING (40-55 sec) — dare the other fanbase to prove you wrong + follow ask
+
+RULES OF ENGAGEMENT (important):
+- Roast the PERFORMANCE, never the human. "His movement looked finished tonight" = great.
+  Mocking someone's body, family, or as a person = NEVER (gets the video pulled).
+- Ground every shot in a real stat or moment so the fight is about FOOTBALL.
+- End on a question fans CANNOT scroll past: "Messi or Ronaldo — settle it below."
+
+LENGTH: 190-240 words.
+
+{HUMAN_VOICE_RULES}
+
+{META_BLOCK_INSTRUCTIONS}
+"""
+
+
 def _prompt_news_commentary(news):
     return f"""You are a passionate football YouTuber writing the daily Shorts script for "Extra Time".
 
@@ -233,6 +262,8 @@ def generate_script_and_metadata(topic):
 
     if content_type == 'news_commentary':
         prompt = _prompt_news_commentary(topic['news'])
+    elif content_type == 'debate':
+        prompt = _prompt_debate(topic['topic_title'], topic['topic_summary'])
     else:
         prompt = _prompt_generic(topic['topic_title'], topic['topic_summary'], content_type)
 
@@ -262,8 +293,9 @@ def generate_script_and_metadata(topic):
     tags_raw       = extract('TAGS')
     tags           = [t.strip() for t in tags_raw.split(',') if t.strip()]
     thumbnail_text = extract('THUMBNAIL_TEXT')
-    banner_tag     = (extract('BANNER_TAG') or
-                      ('BREAKING' if content_type == 'news_commentary' else 'WORLD CUP')).upper().strip()
+    _default_banner = {'news_commentary': 'BREAKING', 'debate': 'HOT TAKE'}.get(
+        content_type, 'WORLD CUP')
+    banner_tag     = (extract('BANNER_TAG') or _default_banner).upper().strip()
     search_tags    = extract('SEARCH_TAGS')
 
     full_description = f"{description}\n\n{search_tags}"

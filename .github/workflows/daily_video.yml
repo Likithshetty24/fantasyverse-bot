@@ -1,10 +1,12 @@
 name: Extra Time Daily Football Short
 
 on:
-  schedule:
-    # 17:00 UTC — evening in Europe, afternoon in Americas, late eve in India.
-    # Good window for football audiences during the World Cup.
-    - cron: '0 17 * * *'
+  # PAUSED 2026-06-19: channel hit Shorts distribution throttling (new uploads
+  # getting ~0 views) — likely YouTube's repetitive/mass-produced content
+  # demotion. Auto-posting disabled while reach recovers. Re-enable by
+  # uncommenting the cron below.
+  # schedule:
+  #   - cron: '0 17 * * *'
   workflow_dispatch:
 
 jobs:

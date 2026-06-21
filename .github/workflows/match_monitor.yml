@@ -1,10 +1,12 @@
 name: Extra Time Match Monitor
 
 on:
-  schedule:
-    # Every 30 minutes — checks for matches that just hit half-time / full-time
-    # and posts an instant reaction Short. Does nothing when no match events.
-    - cron: '*/30 * * * *'
+  # PAUSED 2026-06-19: channel hit Shorts distribution throttling (new uploads
+  # getting ~0 views) — likely YouTube's repetitive/mass-produced content
+  # demotion, accelerated by a copyright removal. Auto-posting disabled while
+  # we reduce volume and let reach recover. Re-enable by uncommenting the cron.
+  # schedule:
+  #   - cron: '*/30 * * * *'
   workflow_dispatch:
 
 # Needed so the workflow can commit the posted-events state file back

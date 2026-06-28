@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   monitor:
+    # HARD-DISABLED during channel cooldown/reset. No uploads will run even
+    # if triggered manually. Set back to true (or remove) to re-enable.
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 50
 
